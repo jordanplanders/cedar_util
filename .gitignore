@@ -443,6 +443,7 @@ cython_debug/
 # File-based project format
 
 # IntelliJ
+.idea/*
 
 # mpeltonen/sbt-idea plugin
 
