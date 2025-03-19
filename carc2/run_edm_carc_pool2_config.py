@@ -11,7 +11,7 @@ import yaml
 from utils.arg_parser import get_parser
 from utils.config_parser import load_config
 
-from ccmtools.utils import process_output as po
+from ccm_utils import process_output as po
 
 
 
