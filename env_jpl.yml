@@ -26,7 +26,7 @@ dependencies:
 #    - /Users/jlanders/PycharmProjects/Pyleoclim_util
 #    - /Users/jlanders/PycharmProjects/PaleoBeasts
     - /home1/lplander/projects/pyEDM
-    - /home1/lplander/projects/ccm_tools
+#    - /home1/lplander/projects/ccm_tools
     - pyyaml
 #    - dask-jobqueue
 #    - psweep
