@@ -2,7 +2,7 @@
 
 import argparse
 from utils.data_processing import is_float
-from future.builtins import isinstance
+# from future.builtins import isinstance
 
 
 def get_parser():

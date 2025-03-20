@@ -3,7 +3,7 @@ import pandas as pd
 from pathlib import Path
 import os
 import sys
-from future.builtins import isinstance
+# from future.builtins import isinstance
 
 import time
 
