@@ -17,7 +17,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 import time
-from utils.arg_parser import get_parser
+# from future.builtins import isinstance
+
+from utils.arg_parser import get_parser, parse_flags, construct_convergence_name
 from utils.config_parser import load_config
 from utils.data_access import collect_raw_data, get_weighted_flag, set_df_weighted, write_query_string
 from utils.data_access import pull_percentile_data, get_group_sizes, get_sample_rep_n, check_empty_concat
@@ -42,7 +44,20 @@ def streamline_cause(label, split_word='causes'):
 ############ Data Grab
 # Function to fetch and prepare real data
 def get_real_data(real_dfs_references, meta_variables, max_libsize, knn, sample_size=500):
-    real_df_full = collect_raw_data(real_dfs_references, meta_vars=meta_variables)
+    if isinstance(real_dfs_references,list) ==True:
+        if len(real_dfs_references) == 0:
+            print('No real data found', file=sys.stderr, flush=True)
+            return None
+        elif len(real_dfs_references) > 1:
+            files = [real_dfs_references[0]]
+            print('Multiple files found, using the first one:', files, file=sys.stderr, flush=True)
+        else:
+            files = real_dfs_references
+        real_df_full = pd.read_csv(grp_path / files[0])
+        print(real_df_full.head(), file=sys.stderr, flush=True)
+    else:
+        real_df_full = collect_raw_data(real_dfs_references, meta_vars=meta_variables)
+
     real_df_full = real_df_full[real_df_full['LibSize'] >= knn].copy()
     if real_df_full.empty:
         return None
@@ -552,25 +567,31 @@ if __name__ == '__main__':
     second_suffix = ''
 
     flags = []
-    function_flag = 'binding'
-    res_flag = ''
-    percent_threshold = .01
-    if args.flags is not None:
-        flags = args.flags
-        if 'binding' in flags:
-            function_flag = 'binding'
+    percent_threshold, function_flag, res_flag, second_suffix = parse_flags(args,
+                                                                            default_percent_threshold=.05,
+                                                                            default_function_flag='binding',
+                                                                            default_res_flag='',
+                                                                            default_second_suffix=second_suffix)
 
-        for flag in args.flags:
-            if 'coarse' in flag:
-                res_flag = '_' + flag
-
-        numeric_flags = [is_float(val) for val in args.flags if is_float(val) is not None]
-        if len(numeric_flags) > 0:
-            percent_threshold = numeric_flags[0]
-
-    percent_threshold_label = str(percent_threshold * 100).lstrip('.0').replace('.', 'p')
-    if '.' in percent_threshold_label:
-        percent_threshold_label = '_' + percent_threshold_label.replace('.', 'p')
+    # function_flag = 'binding'
+    # res_flag = ''
+    # percent_threshold = .01
+    # if args.flags is not None:
+    #     flags = args.flags
+    #     if 'binding' in flags:
+    #         function_flag = 'binding'
+    #
+    #     for flag in args.flags:
+    #         if 'coarse' in flag:
+    #             res_flag = '_' + flag
+    #
+    #     numeric_flags = [is_float(val) for val in args.flags if is_float(val) is not None]
+    #     if len(numeric_flags) > 0:
+    #         percent_threshold = numeric_flags[0]
+    #
+    # percent_threshold_label = str(percent_threshold * 100).lstrip('.0').replace('.', 'p')
+    # if '.' in percent_threshold_label:
+    #     percent_threshold_label = '_' + percent_threshold_label.replace('.', 'p')
 
     proj_dir = Path(os.getcwd()) / proj_name
     config = load_config(proj_dir / 'proj_config.yaml')
@@ -598,35 +619,38 @@ if __name__ == '__main__':
     calc_grps_df = pd.read_csv(calc_grps_path)
     calc_grps_df = calc_grps_df[calc_grps_df['weighted'] == False].copy()
 
-    calc_convergence_dir_name = carc_config_d.dirs.calc_convergence_dir  # config['calc_criteria_rates2']['calc_metrics_dir']['name']#'calc_metrics2'
-    calc_convergence_dir = calc_location / calc_convergence_dir_name / f'{function_flag}{res_flag}{second_suffix}'
-    calc_convergence_dir_csvs = calc_convergence_dir / config.calc_convergence_dir.dirs.csvs
-    if 'approach2' in flags:
-        perc_threshold_dir = calc_convergence_dir / f'{percent_threshold_label}' / 'approach2'
-    else:
-        perc_threshold_dir = calc_convergence_dir / f'{percent_threshold_label}'
+    calc_convergence_dir_name = construct_convergence_name(args, carc_config_d, percent_threshold, second_suffix)
+    calc_convergence_dir = calc_location / calc_convergence_dir_name
 
-    if isinstance(args.dir, str):
-        if len(args.dir) > 0:
-            perc_threshold_dir = perc_threshold_dir/args.dir
+    # calc_convergence_dir_name = carc_config_d.dirs.calc_convergence_dir  # config['calc_criteria_rates2']['calc_metrics_dir']['name']#'calc_metrics2'
+    # calc_convergence_dir = calc_location / calc_convergence_dir_name / f'{function_flag}{res_flag}{second_suffix}'
+    calc_convergence_dir_csvs = calc_convergence_dir / config.calc_convergence_dir.dirs.csvs
+    # if 'approach2' in flags:
+    #     perc_threshold_dir = calc_convergence_dir / f'{percent_threshold_label}' / 'approach2'
+    # else:
+    #     perc_threshold_dir = calc_convergence_dir / f'{percent_threshold_label}'
+    #
+    # if isinstance(args.dir, str):
+    #     if len(args.dir) > 0:
+    #         perc_threshold_dir = perc_threshold_dir/args.dir
 
     if args.test:
         second_suffix = f'_{int(time.time() * 1000)}' if args.test is not None else ''
 
-    raw_fig_dir = perc_threshold_dir / (config.calc_carc_dir.dirs.ccm_surr_plots_dir_raw + second_suffix)
+    raw_fig_dir = calc_convergence_dir / (config.calc_carc_dir.dirs.ccm_surr_plots_dir_raw + second_suffix)
     raw_fig_dir.mkdir(exist_ok=True, parents=True)
     convergence_grps_df = None
 
-    delta_rho_dir = perc_threshold_dir / config.calc_convergence_dir.dirs.delta_rho
+    delta_rho_dir = calc_convergence_dir / config.calc_convergence_dir.dirs.delta_rho
     delta_rho_dir.mkdir(exist_ok=True, parents=True)
 
     delta_rho_dir_csv_parts = delta_rho_dir / config.delta_rho_dir.dirs.summary_frags
     delta_rho_dir_csv_parts.mkdir(exist_ok=True, parents=True)
     delta_rho_csv_name = f'{config.calc_convergence_dir.csvs.delta_rho_csv}.csv'
-    delta_rho_csv = perc_threshold_dir / delta_rho_csv_name
+    delta_rho_csv = calc_convergence_dir / delta_rho_csv_name
 
     # if (calc_convergence_dir / 'convergence_grps.csv').exists():
-    convergence_grps_df = pd.read_csv(perc_threshold_dir / 'convergence_grps.csv', index_col=0)
+    convergence_grps_df = pd.read_csv(calc_convergence_dir / 'convergence_grps.csv', index_col=0)
     # print(convergence_grps_df.head(), file=sys.stdout, flush=True)
 
     if 'Tp_tau' in flags:
@@ -640,7 +664,7 @@ if __name__ == '__main__':
         calc_grps_df = pd.DataFrame(rows, columns=calc_grps_df.columns)
         print(calc_grps_df)
         # calc_grps_df = calc_grps_df[calc_grps_df['Tp'] ==calc_grps_df['tau']].copy()
-        raw_fig_dir = perc_threshold_dir / config.calc_carc_dir.dirs.ccm_surr_plots_dir_raw / 'Tp_tau'
+        raw_fig_dir = calc_convergence_dir / config.calc_carc_dir.dirs.ccm_surr_plots_dir_raw / 'Tp_tau'
 
     pctile_range = [.25, .75]
     raw_fig_dir.mkdir(exist_ok=True, parents=True)
@@ -710,13 +734,24 @@ if __name__ == '__main__':
             if len(conv_match) > 0:
                 conv_match_d = conv_match.iloc[0].to_dict()
                 if len(conv_match_d)>0:
+                    grp_path = calc_location / 'calc_refactor' / f'{grp_d["col_var_id"]}_{grp_d["target_var_id"]}' / f'E{grp_d["E"]}_tau{grp_d["tau"]}'
+
+                    print('grp_path', grp_path, file=sys.stderr, flush=True)
+                    files = [file for file in os.listdir(grp_path) if (file.endswith('.csv'))]
+                    real_dfs_references = [file for file in files if 'neither' in file]
+                    surr_dfs_references = [file for file in files if 'neither' not in file]
+
                     grp_df = calc_log2_df.query(write_query_string(query_keys, grp_d))
                     weighted_flag = get_weighted_flag(grp_d)
                     grp_df = set_df_weighted(grp_df, weighted_flag)
 
                     # Filter for real data frames
-                    real_dfs_references = grp_df[grp_df['surr_var'] == 'neither'].copy()
-                    surr_dfs_references = grp_df[grp_df['surr_var'] != 'neither'].copy()
+                    # real_dfs_references = [file for file in files if 'neither' in file]
+                    # surr_dfs_references = [file for file in files if 'neither' not in file]
+                    #
+                    #
+                    # real_dfs_references = grp_df[grp_df['surr_var'] == 'neither'].copy()
+                    # surr_dfs_references = grp_df[grp_df['surr_var'] != 'neither'].copy()
 
                     arg_tuples.append((grp_d, ind, real_dfs_references, surr_dfs_references, conv_match_d, pctile_range,
                                        override, write_flag, config, calc_location,
@@ -753,9 +788,14 @@ if __name__ == '__main__':
         weighted_flag = get_weighted_flag(grp_d)
         grp_df = set_df_weighted(grp_df, weighted_flag)
 
-        # Filter for real data frames
-        real_dfs_references = grp_df[grp_df['surr_var'] == 'neither'].copy()
-        surr_dfs_references = grp_df[grp_df['surr_var'] != 'neither'].copy()
+        # # Filter for real data frames
+        # real_dfs_references = grp_df[grp_df['surr_var'] == 'neither'].copy()
+        # surr_dfs_references = grp_df[grp_df['surr_var'] != 'neither'].copy()
+
+        grp_path = calc_location / 'calc_refactor' / f'{grp_d["col_var_id"]}_{grp_d["target_var_id"]}' / f'E{grp_d["E"]}_tau{grp_d["tau"]}'
+        files = [file for file in os.listdir(grp_path) if (file.endswith('.csv'))]
+        real_dfs_references = [file for file in files if 'neither' in file]
+        surr_dfs_references = [file for file in files if 'neither' not in file]
 
         # convergence_grps_df['group_id'] = convergence_grps_df['group_id'].astype(str)
 
