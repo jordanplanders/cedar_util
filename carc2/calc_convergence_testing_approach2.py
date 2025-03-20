@@ -1,31 +1,31 @@
+
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from multiprocessing import Pool
+import re
 import os
 import sys
 import datetime
-from scipy import stats
-import seaborn as sns
 import matplotlib.pyplot as plt
-from scipy.stats import gaussian_kde
-from scipy.stats import linregress
+import seaborn as sns
 import time
+import ast
 
-# from xarray import align
-
-from utils.arg_parser import get_parser
+from utils.arg_parser import get_parser, parse_flags, construct_convergence_name
 from utils.config_parser import load_config
-from utils.data_access import get_weighted_flag, check_for_exit, collect_raw_data
-from utils.data_access import bootstrap_raw_output, check_empty_concat
+from utils.data_access import collect_raw_data, get_weighted_flag, check_for_exit, set_df_weighted, write_query_string
+from utils.data_access import pull_percentile_data, get_group_sizes, get_sample_rep_n, check_empty_concat
 from utils.data_processing import is_float
 
+from scipy.stats import gaussian_kde
 from scipy.optimize import curve_fit
-import statsmodels.api as sm
 from scipy.stats import t
 
-import warnings
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+import statsmodels.api as sm
 
+import warnings
 warnings.simplefilter("ignore", category=FutureWarning)
 
 pd.option_context('mode.use_inf_as_na', True)
@@ -425,8 +425,6 @@ from matplotlib.patches import Rectangle
 #     return False
 
 
-import numpy as np
-from sklearn.metrics import mean_absolute_error, mean_squared_error
 #
 # def calculate_fit(x, y_actual, row, model):
 #     """
@@ -1275,7 +1273,15 @@ def process_group(arg_tuple):
                       'Tp', 'lag', 'Tp_lag_total', 'sample', 'weighted', 'target_var',
                       'col_var', 'surr_var', 'col_var_id', 'target_var_id']
     # collect data
-    real_df_full = collect_raw_data(real_dfs_references, meta_vars=meta_variables)
+    if real_dfs_references is None:
+        grp_path = calc_location / 'calc_refactor'/f'{grp_d["col_var_id"]}_{grp_d["target_var_id"]}'/ f'E{grp_d["E"]}_tau{grp_d["tau"]}'
+        print('grp_path', grp_path, file=sys.stderr, flush=True)
+        files = [file for file in os.listdir(grp_path) if (file.endswith('.csv')) & ('neither' in file)]
+        print('files', files, file=sys.stderr, flush=True)
+        real_df_full = pd.read_csv(grp_path / files[0])
+        print(real_df_full.head(), file=sys.stderr, flush=True)
+    else:
+        real_df_full = collect_raw_data(real_dfs_references, meta_vars=meta_variables)
     real_df_full = real_df_full[real_df_full['LibSize'] >= grp_d['knn']].copy()
     real_df = real_df_full[real_df_full['LibSize'] <= _max_libsize].copy()
     if len(real_df_full) == 0:
@@ -1386,7 +1392,7 @@ def process_group(arg_tuple):
                         rel_conv.append(len(rhos[rhos > bmax_opt]) / len(rhos))
                         rel_curve.append(len(rhos[rhos > f(libsize, *popt_middle)]) / len(rhos))
                         est_rho = f(libsize, *popt_middle)
-                        delta_rho = np.abs(est_rho - init_rho) * .05
+                        delta_rho = np.abs(est_rho - init_rho) * percent_threshold
                         filtered_rhos = rhos[rhos > est_rho-delta_rho]
                         filtered_rhos = filtered_rhos[filtered_rhos < est_rho+delta_rho]
                         rel_curve_interval.append(len(filtered_rhos) / len(rhos))
@@ -1604,6 +1610,59 @@ def process_group(arg_tuple):
     else:
         return
 
+# def parse_flags(args, default_percent_threshold=.05, default_function_flag='binding',
+#                                        default_res_flag='', default_second_suffix=''):
+#
+#     percent_threshold = None
+#     function_flag = None
+#     res_flag = None
+#     second_suffix = default_second_suffix
+#
+#     if isinstance(args.flags, list):
+#         if 'inverse_exponential' in args.flags:
+#             function_flag = 'inverse_exponential'
+#         elif 'binding' in args.flags:
+#             function_flag = 'binding'
+#
+#         for flag in args.flags:
+#             if 'coarse' in flag:
+#                 res_flag = '_' + flag
+#
+#         numeric_flags = [is_float(val) for val in args.flags if is_float(val) is not None]
+#         if len(numeric_flags) > 0:
+#             percent_threshold_candidates = [flag for flag in numeric_flags if flag <= 1]
+#             if len(percent_threshold_candidates) > 0:
+#                 percent_threshold = percent_threshold_candidates[0]
+#
+#             second_suffix_candidates = [flag for flag in numeric_flags if flag > 1]
+#             if len(second_suffix_candidates) > 0:
+#                 second_suffix = f'_{int(second_suffix_candidates[0])}'
+#
+#     if function_flag is None:
+#         function_flag = default_function_flag
+#     if percent_threshold is None:
+#         percent_threshold = default_percent_threshold
+#     if res_flag is None:
+#         res_flag = default_res_flag
+#
+#     return percent_threshold, function_flag, res_flag, second_suffix
+
+# def construct_convergence_name(args, carc_config_d, percent_threshold, second_suffix):
+#
+#     percent_threshold_label = str(percent_threshold * 100).lstrip('.0').replace('.', 'p')
+#     if '.' in percent_threshold_label:
+#         percent_threshold_label = '_' + percent_threshold_label.replace('.', 'p')
+#
+#     calc_convergence_dir_name = f'{carc_config_d.dirs.calc_convergence_dir}/tolerance{percent_threshold_label}'
+#     if isinstance(args.dir, str):
+#         if len(args.dir) > 0:
+#             subdir = args.dir
+#             calc_convergence_dir_name = f'{calc_convergence_dir_name}/{subdir}{second_suffix}'
+#     else:
+#         calc_convergence_dir_name = f'{calc_convergence_dir_name}{second_suffix}'
+#
+#     return calc_convergence_dir_name
+
 
 if __name__ == '__main__':
 
@@ -1633,36 +1692,59 @@ if __name__ == '__main__':
     # if args.test:
     second_suffix = f'_{int(time.time() * 1000)}' if args.test is True else ''
 
-    percent_threshold = .01
-    function_flag = 'inverse_exponential'
-    res_flag= ''
-    if isinstance(args.flags, list):
-        if 'inverse_exponential' in args.flags:
-            function_flag = 'inverse_exponential'
-        elif 'binding' in args.flags:
-            function_flag = 'binding'
+    # percent_threshold = .05
+    # function_flag = 'binding'
+    # res_flag = ''
 
-        for flag in args.flags:
-            if 'coarse' in flag:
-                res_flag= '_'+flag
+    # def construct_convergence_dir_name(args, carc_config_d, percent_threshold=.05, function_flag='binding', res_flag=''):
+    #
+    #     if isinstance(args.flags, list):
+    #         if 'inverse_exponential' in args.flags:
+    #             function_flag = 'inverse_exponential'
+    #         elif 'binding' in args.flags:
+    #             function_flag = 'binding'
+    #
+    #         for flag in args.flags:
+    #             if 'coarse' in flag:
+    #                 res_flag= '_'+flag
+    #
+    #         numeric_flags= [is_float(val) for val in args.flags if is_float(val) is not None]
+    #         if len(numeric_flags) > 0:
+    #             percent_threshold_candidates = [flag for flag in numeric_flags if flag<=1]
+    #             if len(percent_threshold_candidates) > 0:
+    #                 percent_threshold = percent_threshold_candidates[0]
+    #
+    #             second_suffix_candidates = [flag for flag in numeric_flags if flag > 1]
+    #             if len(second_suffix_candidates) > 0:
+    #                 second_suffix = f'_{int(second_suffix_candidates[0])}'
+    #
+    #     percent_threshold_label = str(percent_threshold * 100).lstrip('.0').replace('.', 'p')
+    #     if '.' in percent_threshold_label:
+    #         percent_threshold_label = '_' + percent_threshold_label.replace('.', 'p')
+    #
+    #     calc_convergence_dir_name = f'{carc_config_d.dirs.calc_convergence_dir}/tolerance{percent_threshold_label}'
+    #     if isinstance(args.dir, str):
+    #         if len(args.dir) > 0:
+    #             subdir = args.dir
+    #             calc_convergence_dir_name = f'{calc_convergence_dir_name}/{subdir}{second_suffix}'
+    #     else:
+    #         calc_convergence_dir_name = f'{calc_convergence_dir_name}{second_suffix}'
+    #     return calc_convergence_dir_name
 
-        numeric_flags= [is_float(val) for val in args.flags if is_float(val) is not None]
-        if len(numeric_flags)>0:
-            percent_threshold = numeric_flags[0]
 
-    print(percent_threshold, function_flag, res_flag)
-    if isinstance(args.dir, str):
-        if len(args.dir) > 0:
-            parent_dir = Path('approach2')/args.dir
-    else:
-        parent_dir = Path('approach2')
+    # print(percent_threshold, function_flag, res_flag)
+    # if isinstance(args.dir, str):
+    #     if len(args.dir) > 0:
+    #         parent_dir = Path('approach2')/args.dir
+    # else:
+    #     parent_dir = Path('approach2')
 
     proj_dir = Path(os.getcwd()) / proj_name
     config = load_config(proj_dir / 'proj_config.yaml')
 
     calc_carc_mirrored = proj_dir / config.mirrored.calc_carc
     carc_config_d = config.calc_carc_dir
-    calc_convergence_dir_name = carc_config_d.dirs.calc_convergence_dir  #config['calc_criteria_rates2']['calc_metrics_dir']['name']#'calc_metrics2'
+    # calc_convergence_dir_name = carc_config_d.dirs.calc_convergence_dir  #config['calc_criteria_rates2']['calc_metrics_dir']['name']#'calc_metrics2'
 
     calc_log_path_new = calc_carc_mirrored / f'{carc_config_d.csvs.completed_runs_csv}.csv'
     calc_log2_df = pd.read_csv(calc_log_path_new, index_col=0, low_memory=False)
@@ -1672,20 +1754,34 @@ if __name__ == '__main__':
     else:
         calc_location = proj_dir / config.carc.calc_carc
 
+    percent_threshold, function_flag, res_flag, second_suffix = parse_flags(args,
+                                                                                 default_percent_threshold=.05,
+                                                                                 default_function_flag='binding',
+                                                                                 default_res_flag='',
+                                                                                 default_second_suffix=second_suffix)
 
-    percent_threshold_label = str(percent_threshold*100).lstrip('.0').replace('.', 'p')
-    if '.' in percent_threshold_label:
-        percent_threshold_label = '_'+percent_threshold_label.replace('.', 'p')
+    calc_convergence_dir_name = construct_convergence_name(args, carc_config_d, percent_threshold, second_suffix)
 
-    calc_convergence_dir = calc_location / calc_convergence_dir_name / f'{function_flag}{res_flag}{second_suffix}'
+    # calc_convergence_dir_name = f'{carc_config_d.dirs.calc_convergence_dir}/tolerance{percent_threshold_label}'
+    calc_convergence_dir = calc_location / calc_convergence_dir_name
+    # if isinstance(args.dir, str):
+    #     if len(args.dir) > 0:
+    #         subdir = args.dir
+    #         calc_convergence_dir = calc_location / carc_config_d.dirs.calc_convergence_dir / f'{subdir}{second_suffix}'
+    # else:
+    #     calc_convergence_dir = calc_location / f'{carc_config_d.dirs.calc_convergence_dir}{second_suffix}'
+
+    # calc_convergence_dir = calc_location / calc_convergence_dir_name #/ f'{function_flag}{res_flag}{second_suffix}'
     calc_convergence_dir.mkdir(exist_ok=True, parents=True)
     calc_convergence_dir_csvs = calc_convergence_dir /config.calc_convergence_dir.dirs.csvs
 
-    perc_threshold_dir = calc_convergence_dir / f'{percent_threshold_label}'/parent_dir
-    convergence_dir_csv_parts = perc_threshold_dir / f'{config.calc_convergence_dir.dirs.summary_frags}'
+    # perc_threshold_dir = calc_convergence_dir / f'{percent_threshold_label}'/parent_dir
+    # perc_threshold_dir = calc_convergence_dir
+
+    convergence_dir_csv_parts = calc_convergence_dir / f'{config.calc_convergence_dir.dirs.summary_frags}'
     calc_convergence_dir_csvs.mkdir(exist_ok=True, parents=True)
     convergence_dir_csv_parts.mkdir(exist_ok=True, parents=True)
-    fig_dir = perc_threshold_dir /f'{config.calc_convergence_dir.dirs.figures}'
+    fig_dir = calc_convergence_dir /f'{config.calc_convergence_dir.dirs.figures}'
     fig_dir.mkdir(exist_ok=True, parents=True)
 
     query_keys = config.calc_criteria_rates2.query_keys
