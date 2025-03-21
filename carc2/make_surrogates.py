@@ -8,6 +8,7 @@ import yaml
 from utils.arg_parser import get_parser
 import copy
 
+# python3 carc2/make_surrogates.py --project $PROJECT -n 3
 
 def increment_var_name(col_name, increment, prefix):
     if col_name.startswith(prefix):

@@ -111,11 +111,6 @@ if __name__ == '__main__':
         except:
             continue
 
-    # parameter_dir = Path(os.getcwd())/'carc'/"parameters"
-    # total_missing = []
-    # calc_runs = []
-    # if param_file is not None:
-        # parameter_files = [param_file]
 
     #@todo: add support for multiple parameter files by changing flag to a list of parameter files
     total_missing = []

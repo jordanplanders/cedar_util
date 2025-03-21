@@ -5,6 +5,7 @@ from pathlib import Path
 from utils.arg_parser import get_parser
 from utils.config_parser import load_config
 
+# python3 carc2/make_dirs.py --project $PROJECT
 
 if __name__ == '__main__':
 
@@ -36,10 +37,10 @@ if __name__ == '__main__':
         calc_location = proj_dir / config.carc.calc_carc
 
     calc_location.mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    (calc_location/carc_config_d.dirs.calc_areas_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    (calc_location/carc_config_d.dirs.calc_grp_pctile_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    (calc_location/carc_config_d.dirs.cross_corr_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+    # (calc_location/carc_config_d.dirs.calc_areas_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+    # (calc_location/carc_config_d.dirs.calc_grp_pctile_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+    # (calc_location/carc_config_d.dirs.cross_corr_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
     (calc_location/carc_config_d.dirs.calc_convergence_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    (calc_location/carc_config_d.dirs.calc_metrics_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    (calc_location/carc_config_d.dirs.ccm_surr_plots_dir_raw).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+    # (calc_location/carc_config_d.dirs.calc_metrics_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+    # (calc_location/carc_config_d.dirs.ccm_surr_plots_dir_raw).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
 

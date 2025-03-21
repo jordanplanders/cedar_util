@@ -23,6 +23,11 @@ from utils.config_parser import load_config
 # and additional flags Tp_tau2 and Tp_tau3
 
 
+#python3 carc2/make_params.py --project $PROJECT --parameters $PARAMS --vars surrogate neither
+#python3 carc2/make_params.py --project $PROJECT --parameters $PARAMS --inds 1 10 --vars surrogate temp tsi
+#echo "Params created"
+
+
 
 # Define a dictionary of parameters to be used for generating combinations later
 parameters_d = {

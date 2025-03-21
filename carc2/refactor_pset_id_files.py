@@ -1,31 +1,11 @@
-# import matplotlib.pyplot as plt
-# import seaborn as sns
-# import numpy as np
-# import pandas as pd
-# from scipy import stats
-# import datetime
-
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from multiprocessing import Pool
-import re
-import os
-import sys
-import datetime
-import matplotlib.pyplot as plt
-import seaborn as sns
-import warnings
-import time
+import os, sys
+
 from utils.arg_parser import get_parser
 from utils.config_parser import load_config
 from utils.data_access import collect_raw_data, get_weighted_flag, set_df_weighted, write_query_string
-from utils.data_access import pull_percentile_data, get_group_sizes, get_sample_rep_n, check_empty_concat
-from scipy import stats
-from utils.data_processing import is_float
-import ast
-
-
 
 def streamline_cause(label, split_word='causes'):
     label_parts = label.split(' {} '.format(split_word))
@@ -73,7 +53,6 @@ def get_real_data(real_dfs_references, meta_variables, max_libsize, knn, grp_id,
 def get_surrogate_data(surr_dfs_references, meta_variables, max_libsize, knn, grp_id,grp_path,
                        sample_size=400):
 
-    # print('surr_dfs_references', surr_dfs_references.head(), file=sys.stdout, flush=True)
     for pset_id, pset_df in surr_dfs_references.groupby('pset_id'):
         E = pset_df['E'].unique()[0]
         tau = pset_df['tau'].unique()[0]
@@ -118,17 +97,6 @@ def get_surrogate_data(surr_dfs_references, meta_variables, max_libsize, knn, gr
 
         # save csv
 
-    #     if len(surr_df)>0:
-    #         surr_dfs.append(surr_df)
-    #         ctr += 1
-    #
-    # if len(surr_dfs) == 0:
-    #     print('No surrogate data found', file=sys.stderr, flush=True)
-    #     return None
-    # else:
-    #     surr_df_full = pd.concat(surr_dfs).reset_index(drop=True)
-    #     return surr_df_full
-
 
 def process_group_workflow(arg_tuple):
     (grp_d, ind, real_dfs_references, surr_dfs_references, pctile_range, override, write,  config, calc_location) = arg_tuple
@@ -141,7 +109,6 @@ def process_group_workflow(arg_tuple):
     knn = 20
 
     grp_path = calc_location / 'calc_refactor'/f'{grp_d["col_var_id"]}_{grp_d["target_var_id"]}'/ f'E{grp_d["E"]}_tau{grp_d["tau"]}'
-    print(grp_path, file=sys.stdout, flush=True)
     grp_path.mkdir(exist_ok=True, parents=True)
 
     get_real_data(real_dfs_references, meta_variables, max_libsize, knn, grp_d['group_id'], grp_path)
@@ -168,27 +135,6 @@ if __name__ == '__main__':
             write_flag = 'append'
 
     second_suffix = ''
-
-    # flags = []
-    # function_flag = 'binding'
-    # res_flag = ''
-    # percent_threshold = .01
-    # if args.flags is not None:
-    #     flags = args.flags
-    #     if 'binding' in flags:
-    #         function_flag = 'binding'
-    #
-    #     for flag in args.flags:
-    #         if 'coarse' in flag:
-    #             res_flag = '_' + flag
-    #
-    #     numeric_flags = [is_float(val) for val in args.flags if is_float(val) is not None]
-    #     if len(numeric_flags) > 0:
-    #         percent_threshold = numeric_flags[0]
-    #
-    # percent_threshold_label = str(percent_threshold * 100).lstrip('.0').replace('.', 'p')
-    # if '.' in percent_threshold_label:
-    #     percent_threshold_label = '_' + percent_threshold_label.replace('.', 'p')
 
     proj_dir = Path(os.getcwd()) / proj_name
     config = load_config(proj_dir / 'proj_config.yaml')
@@ -219,61 +165,18 @@ if __name__ == '__main__':
     pctile_range = [.25, .75]
     query_keys = config.calc_criteria_rates2.query_keys
 
-    # figs_dir.mkdir(exist_ok=True, parents=True)
-
-    # if len(sys.argv) > 1:
-    #     delta_label = sys.argv[1]
-    # else:
-    # delta_label = 'r50p-s50p'
-
-    # calc_grps_path = calc_carc / 'calc_grps.csv'
-    # calc_grps_df = pd.read_csv(calc_grps_path)
-    # calc_grps_df = calc_grps_df[(calc_grps_df['tau'].isin([8]))].copy()
-    # # calc_grps_df = calc_grps_df[(calc_grps_df['tau']==6) &(calc_grps_df['E']==9)].copy()
-    # calc_grps = [(grp_d, delta_label) for grp_d in calc_grps_df.to_dict(orient='records')]
-    #
-    # # Determine the number of CPUs to use from the SLURM environment variable
-    # num_cpus = int(os.getenv('SLURM_CPUS_PER_TASK', 4))
-    #
-    # # Use multiprocessing to parallelize the process
-    # with Pool(num_cpus) as pool:
-    #     results = pool.map(process_group, calc_grps)
-    #
-    # print('figures built successfully!', file = sys.stdout, flush = True)
-    #
-    #
-    # calc_grps_path = calc_carc / 'calc_grps.csv'
-    # calc_grps_df = pd.read_csv(calc_grps_path)
-    # calc_grps_df = calc_grps_df[(calc_grps_df['tau'].isin([8]))].copy()
-    # calc_grps_df = calc_grps_df[(calc_grps_df['tau']==4)].copy()
-
-    ## scratch code for checking dates
-    # if metric_df_path.exists():
-    #     # file modification timestamp of a file
-    #     m_time = os.path.getmtime(metric_df_path)
-    #     # convert timestamp into DateTime object
-    #     dt_m = datetime.datetime.fromtimestamp(m_time)
-    #     if dt_m > datetime.datetime(2024, 8, 12):
-    #         print(f'grp_id:{str(grp_d["group_id"])} already exists', file=sys.stdout, flush=True)
     if Path('/Users/jlanders').exists():
 
         calc_grps_df = calc_grps_df[(calc_grps_df['train_ind_i'] == 0) &
                                     (calc_grps_df['lag'] == 0) &
                                     (calc_grps_df['knn'] == 20)
-                                    # & (calc_grps_df['col_var_id'] == 'essel')
-                                    # & (calc_grps_df['target_var_id'] == 'vieira')
-                                    # & (calc_grps_df['E'] == 4)
-                                   # & (calc_grps_df['tau'] < 8)
         ].copy()
         calc_grps = calc_grps_df.to_dict(orient='records')
 
         arg_tuples = []
         ind = 0
         for grp_d in calc_grps:
-            # conv_match = convergence_grps_df[convergence_grps_df['group_id'] == grp_d['group_id']].copy()
-            # if len(conv_match) > 0:
-            #     conv_match_d = conv_match.iloc[0].to_dict()
-            #     if len(conv_match_d)>0:
+
             grp_df = calc_log2_df.query(write_query_string(query_keys, grp_d))
             weighted_flag = get_weighted_flag(grp_d)
             grp_df = set_df_weighted(grp_df, weighted_flag)
@@ -292,14 +195,12 @@ if __name__ == '__main__':
         with Pool(num_cpus) as pool:
             pool.map(process_group_workflow, arg_tuples)
 
-
     else:
         if args.inds is not None:
             index = int(args.inds[-1])
         else:
             print('calc_criteria_rates2; index is required', file=sys.stdout, flush=True)
             sys.exit(0)
-        # index = int(sys.argv[1])
 
         grp_ds = calc_grps_df.to_dict(orient='records')
         if index >= len(grp_ds):
