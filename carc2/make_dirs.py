@@ -4,6 +4,7 @@ from pathlib import Path
 
 from utils.arg_parser import get_parser
 from utils.config_parser import load_config
+from utils.location_helpers import *
 
 # python3 carc2/make_dirs.py --project $PROJECT
 
@@ -21,26 +22,27 @@ if __name__ == '__main__':
         print('project name is required', file=sys.stderr, flush=True)
         sys.exit(0)
 
-    proj_dir = Path(os.getcwd()) / proj_name
+    # current_path = Path(os.getcwd())
+    # if proj_name in str(current_path):
+    #     proj_dir = Path(str(current_path).split(proj_name)[0])/ proj_name
+    # else:
+    #     proj_dir = current_path / proj_name
+    #
+    proj_dir = set_proj_dir(proj_name, Path(os.getcwd()))
+
     config = load_config(proj_dir / 'proj_config.yaml')
     carc_config_d = config.calc_carc_dir
 
     (proj_dir / 'parameters').mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
     (proj_dir/ carc_config_d.name).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    (proj_dir/config.calc_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+
+    calc_location = set_calc_path(args, proj_dir, config)
+    calc_location.mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+
     (proj_dir/'surrogates').mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
     (proj_dir/'slurm').mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+    (proj_dir/'notebooks').mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
 
-    if Path('/Users/jlanders').exists() == True:
-        calc_location = proj_dir / config.local.calc_carc  #'calc_local_tmp'
-    else:
-        calc_location = proj_dir / config.carc.calc_carc
-
-    calc_location.mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    # (calc_location/carc_config_d.dirs.calc_areas_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    # (calc_location/carc_config_d.dirs.calc_grp_pctile_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    # (calc_location/carc_config_d.dirs.cross_corr_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
     (calc_location/carc_config_d.dirs.calc_convergence_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    # (calc_location/carc_config_d.dirs.calc_metrics_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-    # (calc_location/carc_config_d.dirs.ccm_surr_plots_dir_raw).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+    (calc_location/carc_config_d.dirs.output).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
 
