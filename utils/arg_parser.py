@@ -27,7 +27,7 @@ def get_parser():
     parser.add_argument('-l', '--flags',dest='flags',  nargs='+',
                         type=str, help="Specify any additional flags")
     parser.add_argument('-d', '--dir', dest='dir', type=str, help="Specify parent directory")
-
+    parser.add_argument( '--calc_dir', dest='calc_dir', type=str, help="Specify calc directory")
 
     return parser
 
@@ -69,17 +69,3 @@ def parse_flags(args, default_percent_threshold=.05, default_function_flag='bind
     return percent_threshold, function_flag, res_flag, second_suffix
 
 
-def construct_convergence_name(args, carc_config_d, percent_threshold, second_suffix):
-    percent_threshold_label = str(percent_threshold * 100).lstrip('.0').replace('.', 'p')
-    if '.' in percent_threshold_label:
-        percent_threshold_label = '_' + percent_threshold_label.replace('.', 'p')
-
-    calc_convergence_dir_name = f'{carc_config_d.dirs.calc_convergence_dir}/tolerance{percent_threshold_label}'
-    if isinstance(args.dir, str):
-        if len(args.dir) > 0:
-            subdir = args.dir
-            calc_convergence_dir_name = f'{calc_convergence_dir_name}/{subdir}{second_suffix}'
-    else:
-        calc_convergence_dir_name = f'{calc_convergence_dir_name}{second_suffix}'
-
-    return calc_convergence_dir_name
