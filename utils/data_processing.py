@@ -2,6 +2,7 @@ import types
 
 
 
+
 def is_float(string):
     try:
         val = float(string)

@@ -14,6 +14,14 @@ def set_calc_path(args, proj_dir, config, second_suffix=''):
 
     return calc_location
 
+def set_output_path(args, calc_location, config):
+    if args.output_dir is not None:
+        output_dir = calc_location / args.output_dir
+    elif config.carc.output_dir is not None:
+        output_dir = calc_location / config.carc.output_dir
+    else:
+        output_dir = calc_location
+    return output_dir
 
 def set_proj_dir(proj_name, current_path):
     if proj_name in str(current_path):
