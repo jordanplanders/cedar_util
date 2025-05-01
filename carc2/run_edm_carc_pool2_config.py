@@ -19,7 +19,7 @@ from ccm_utils import process_output as po
 
 
 def run_experiment(arg_tuple):
-    pset, calc_dir, time_offset, start_ind, config, proj_dir = arg_tuple
+    pset, output_dir, time_offset, start_ind, config, proj_dir = arg_tuple
     # with open(calc_dir.parent/'proj_config.yaml', 'r') as file:
     #     config = yaml.safe_load(file)
 
@@ -36,7 +36,7 @@ def run_experiment(arg_tuple):
     #     pset['target_var_id'] = pset[f'{config["target_var"]}_id']
     run_config = SimpleNamespace(**pset)
 
-    dir_path = calc_dir #/ str(run_config.pset_id)
+    dir_path = output_dir #/ str(run_config.pset_id)
     df_csv_name = f'{run_config.pset_id}_E{run_config.E}_tau{run_config.tau}__{run_config.surr_var}{run_config.surr_num}.csv'  # 'df_{}.csv'.format(run_config.run_id)
     df_path = dir_path / df_csv_name
 
@@ -78,7 +78,7 @@ def run_experiment(arg_tuple):
 
     if surr_var_id is not None:
         surr_file = config.get_dynamic_attr("{var}.surr_file_name", surr_var_id)
-        surr_file = surr_file[0]
+        surr_file = surr_file[0] if isinstance(surr_file, list) else surr_file
 
         surr_data = pd.read_csv(proj_dir / 'surrogates' / surr_file, index_col=0)
         data = data.iloc[-len(surr_data):].copy()
@@ -224,6 +224,8 @@ if __name__ == '__main__':
         second_suffix = f'_{int(time.time() * 1000)}'
 
     calc_location = set_calc_path(args, proj_dir, config, second_suffix)
+    output_dir = set_output_path(args, calc_location, config)
+
     # if Path('/Users/jlanders').exists() == True:
     #     calc_location = proj_dir / (config.local.calc_carc + f'{second_suffix}')  # 'calc_local_tmp'
     # else:
@@ -240,27 +242,30 @@ if __name__ == '__main__':
         print('local', file=sys.stdout, flush=True)
 
         arg_tuples = []
-        for time_offset, pset in enumerate(parameter_ds):
+        for time_offset, pset_d in enumerate(parameter_ds):
             # if 'col_var_id' not in pset:
             #     pset['col_var_id'] = pset[f'{str.lower(config[col_var"])}_id']
             # if 'target_var_id' not in pset:
             #     pset['target_var_id'] = pset[f'{str.lower(config["target_var"])}_id']
+            if 'pset_id' not in pset_d:
+                if 'id' in pset_d:
+                    pset_d['pset_id'] = pset_d['id']
 
-            calc_sub_location = calc_location/f'{pset["col_var_id"]}_{pset["target_var_id"]}' / f'E{pset["E"]}_tau{pset["tau"]}'
+            calc_sub_location = calc_location /f'{pset_d["col_var_id"]}_{pset_d["target_var_id"]}' / f'E{pset_d["E"]}_tau{pset_d["tau"]}'
             calc_sub_location.mkdir(parents=True, exist_ok=True)
             calc_dir_list = os.listdir(calc_sub_location)
 
-            candidate_tuple = (pset, calc_sub_location, time_offset, start_ind + time_offset, config, proj_dir)
+            candidate_tuple = (pset_d, calc_sub_location, time_offset, start_ind + time_offset, config, proj_dir)
             if override == True:
                 arg_tuples.append(candidate_tuple)
             else:
                 if 'add' in flags:
                     arg_tuples.append(candidate_tuple)
 
-                file_name = f"{pset['id']}_E{pset['E']}_tau{pset['tau']}__{pset['surr_var']}{pset['surr_num']}.csv"
+                file_name = f"{pset_d['pset_id']}_E{pset_d['E']}_tau{pset_d['tau']}__{pset_d['surr_var']}{pset_d['surr_num']}.csv"
                 if str(file_name) in calc_dir_list:
-                    print('skipping', pset['id'], pset['col_var_id'], pset['target_var_id'], pset['E'], pset['tau'],
-                          pset['lag'], file=sys.stdout, flush=True)
+                    print('skipping', pset_d['pset_id'], pset_d['col_var_id'], pset_d['target_var_id'], pset_d['E'], pset_d['tau'],
+                          pset_d['lag'], file=sys.stdout, flush=True)
                 else:
                     # if check_exists(pset['id'], calc_dir) == False:
                     arg_tuples.append(candidate_tuple)
@@ -272,31 +277,34 @@ if __name__ == '__main__':
         parameter_ds = parameter_ds[0]
         time_offset = 1
 
-        pset = parameter_ds
-        if 'col_var_id' not in pset:
-            pset['col_var_id'] = pset[f'{config["col_var"]}_id']
-        if 'target_var_id' not in pset:
-            pset['target_var_id'] = pset[f'{config["target_var"]}_id']
+        pset_d = parameter_ds
+        if 'pset_id' not in pset_d:
+            if 'id' in pset_d:
+                pset_d['pset_id'] = pset_d['id']
+        if 'col_var_id' not in pset_d:
+            pset_d['col_var_id'] = pset_d[f'{config["col_var"]}_id']
+        if 'target_var_id' not in pset_d:
+            pset_d['target_var_id'] = pset_d[f'{config["target_var"]}_id']
         arg_tuples = []
         # for time_offset, pset in enumerate(parameter_ds):
-        calc_sub_location = calc_location / f'{pset["col_var_id"]}_{pset["target_var_id"]}' / f'E{pset["E"]}_tau{pset["tau"]}'
+        calc_sub_location = calc_location / f'{pset_d["col_var_id"]}_{pset_d["target_var_id"]}' / f'E{pset_d["E"]}_tau{pset_d["tau"]}'
         calc_sub_location.mkdir(parents=True, exist_ok=True)
         calc_dir_list = os.listdir(calc_sub_location)
 
-        file_name = f"{pset['id']}_E{pset['E']}_tau{pset['tau']}__{pset['surr_var']}{pset['surr_num']}.csv"
-        candidate_tuple = (pset, calc_sub_location, time_offset, start_ind + time_offset, config, proj_dir)
+        file_name = f"{pset_d['pset_id']}_E{pset_d['E']}_tau{pset_d['tau']}__{pset_d['surr_var']}{pset_d['surr_num']}.csv"
+        candidate_tuple = (pset_d, calc_sub_location, time_offset, start_ind + time_offset, config, proj_dir)
         if override == False:
             if file_name in calc_dir_list:
-                print('skipping', pset['id'], pset['col_var_id'], pset['target_var_id'], pset['E'], pset['tau'],
-                      pset['lag'], file=sys.stderr, flush=True)
+                print('skipping', pset_d['pset_id'], pset_d['col_var_id'], pset_d['target_var_id'], pset_d['E'], pset_d['tau'],
+                      pset_d['lag'], file=sys.stderr, flush=True)
             else:
-                print('prepping', pset['id'], pset['col_var_id'], pset['target_var_id'], pset['E'], pset['tau'],
-                      pset['lag'], file=sys.stdout, flush=True)
+                print('prepping', pset_d['pset_id'], pset_d['col_var_id'], pset_d['target_var_id'], pset_d['E'], pset_d['tau'],
+                      pset_d['lag'], file=sys.stdout, flush=True)
                 arg_tuples.append(candidate_tuple)
         else:
-            arg_tuples.append((pset, calc_sub_location, time_offset, start_ind, config, proj_dir))
-            print('prepping', pset['id'], pset['col_var_id'], pset['target_var_id'], pset['E'], pset['tau'],
-                  pset['lag'], file=sys.stdout, flush=True)
+            arg_tuples.append((pset_d, calc_sub_location, time_offset, start_ind, config, proj_dir))
+            print('prepping', pset_d['pset_id'], pset_d['col_var_id'], pset_d['target_var_id'], pset_d['E'], pset_d['tau'],
+                  pset_d['lag'], file=sys.stdout, flush=True)
 
         for arg in arg_tuples:
             print('sending', arg[0], arg[-1], file=sys.stdout, flush=True)
