@@ -5,6 +5,116 @@ import os
 import sys
 import datetime
 
+import re
+
+def streamline_cause(label, split_word='causes'):
+    label_parts = label.split(' {} '.format(split_word))
+    clean_parts = []
+    for part in label_parts:
+        # print(part.split('(t-'))
+        try:
+            part = ' '.join(list(set([col.split(')')[-1].strip(' ') for col in part.split('(t-')]))).strip(' ')
+        except:
+            part = part.strip(' ')
+        clean_parts.append(part)
+    label = f' {split_word} '.join(clean_parts)
+    return label
+
+
+def remove_numbers(input_string):
+    # Use regex to remove all digits from the string
+    return re.sub(r'\d+', '', input_string)
+
+def relationship_filter(df, rel):
+    return df[df['relation'].isin([rel, rel.replace('influences', 'causes')])].copy()
+
+def rel_reformat(df, rel):
+    if rel in df.columns:
+        df[rel] = df[rel].str.replace('causes', 'influences')
+    return df
+
+# Function to fetch and prepare real data
+def get_real_data(real_dfs_references, grp_path, meta_variables, max_libsize, knn, sample_size=500):
+    if isinstance(real_dfs_references,list) ==True:
+        if len(real_dfs_references) == 0:
+            print('No real data found', file=sys.stderr, flush=True)
+            return None
+        elif len(real_dfs_references) > 1:
+            # files = [real_dfs_references[0]]
+            real_df_full = pd.concat([pd.read_csv(grp_path / file) for file in real_dfs_references])
+            print('Multiple files found, concatenating:', len(real_dfs_references), file=sys.stderr, flush=True)
+        else:
+            files = real_dfs_references
+            real_df_full = pd.read_csv(grp_path / files[0])
+        # print(real_df_full.head(), file=sys.stderr, flush=True)
+    else:
+        real_df_full = collect_raw_data(real_dfs_references, meta_vars=meta_variables)
+
+    real_df_full = real_df_full[real_df_full['LibSize'] >= knn].copy()
+    if real_df_full.empty:
+        return None
+
+    real_df = real_df_full[real_df_full['LibSize'] <= max_libsize].copy()
+    rel_dfs = [
+        rel_df.groupby('LibSize').apply(lambda x: x.sample(n=sample_size, replace=True)).reset_index(drop=True)
+        for _, rel_df in real_df.groupby('relation')
+    ]
+    real_df = pd.concat(rel_dfs).reset_index(drop=True)
+    real_df['surr_var'] = 'neither'
+
+    try:
+        real_df['relation'] = real_df['relation'].apply(lambda x: streamline_cause(x))
+    except Exception as e:
+        print(f'Error applying streamline_cause: {e}', file=sys.stderr)
+
+    return real_df
+
+
+# Function to fetch and prepare surrogate data
+def get_surrogate_data(surr_dfs_references, grp_path, meta_variables, max_libsize, knn, _rel,
+                       sample_size=400):
+    surr_dfs = []
+    ctr = 0
+    for df_csv_name in surr_dfs_references:
+        surr_df_full = pd.read_csv(grp_path / df_csv_name)
+        surr_df = relationship_filter(surr_df_full, _rel) #surr_df_full[surr_df_full['relation'].isin([_rel, _rel.replace('influences', 'causes')])].copy()
+
+        if surr_df.empty:
+            continue
+
+        if 'surr_var' not in surr_df.columns:
+            surr_var = remove_numbers(df_csv_name.split('__')[1].split('.csv')[0])
+            if surr_var == 'tsi':
+                surr_var = 'TSI'
+            surr_df['surr_var'] = surr_var
+
+        surr_df = surr_df[(surr_df['surr_var'] != 'neither') & (surr_df['LibSize'] >= knn) & (surr_df['LibSize'] <= max_libsize)].copy()
+        rel_dfs = [
+            rel_df.groupby('LibSize').apply(lambda x: x.sample(n=sample_size, replace=True)).reset_index(drop=True)
+            for _, rel_df in surr_df.groupby('surr_var')
+        ]
+        surr_df = pd.concat(rel_dfs).reset_index(drop=True)
+        rel_dfs = []
+        for surr_var, surr_df_i in surr_df.groupby('surr_var'):
+            surr_df_i['relation_s'] = surr_df_i['relation'].str.replace(surr_var, f'{surr_var} (surr) ')
+            surr_df_i['relation_s'] =surr_df_i['relation_s'].str.strip()
+            surr_df_i['relation_s'] = surr_df_i['relation_s'].str.replace('  ', ' ')
+            rel_dfs.append(surr_df_i)
+        surr_df = pd.concat(rel_dfs).reset_index(drop=True)
+        # surr_df['relation_s'] = surr_df.apply(lambda row: row['relation'].replace(row['surr_var'], f'{row["surr_var"]} (surr)'), axis=1)
+        if len(surr_df)>0:
+            surr_dfs.append(surr_df)
+            ctr += 1
+        # if ctr > 3:
+        #     continue
+
+    if len(surr_dfs) == 0:
+        print('No surrogate data found', file=sys.stderr, flush=True)
+        return None
+    else:
+        surr_df_full = pd.concat(surr_dfs).reset_index(drop=True)
+        return surr_df_full
+
 def collect_raw_data(dfs_references, meta_vars= None):
     real_dfs = []
     # print(grp_d, file=sys.stdout, flush=True)
