@@ -3,9 +3,12 @@ from pathlib import Path
 from multiprocessing import Pool
 import os, sys
 
+from ccm_utils.ebm_ccm import output_dir
 from utils.arg_parser import get_parser
 from utils.config_parser import load_config
-from utils.data_access import collect_raw_data, get_weighted_flag, set_df_weighted, write_query_string
+from utils.data_access import collect_raw_output, get_weighted_flag, set_df_weighted, write_query_string
+from utils.location_helpers import *
+from utils.run_tools import decide_file_handling
 
 def streamline_cause(label, split_word='causes'):
     label_parts = label.split(' {} '.format(split_word))
@@ -37,7 +40,7 @@ def get_real_data(real_dfs_references, meta_variables, max_libsize, knn, grp_id,
         print(f'[real exists] real output grp_id:{grp_id}, pset_id:{pset_id} already exists, {df_csv_name}', file=sys.stdout, flush=True)
         return None
 
-    real_df_full = collect_raw_data(real_dfs_references, meta_vars=meta_variables)
+    real_df_full = collect_raw_output(real_dfs_references, meta_vars=meta_variables)
     if real_df_full.empty:
         return None
 
@@ -66,7 +69,7 @@ def get_surrogate_data(surr_dfs_references, meta_variables, max_libsize, knn, gr
             print(f'[surrogate exists] surrogate output grp_id:{grp_id}, pset_id:{pset_id} already exists, {df_csv_name}', file=sys.stdout, flush=True)
             continue
 
-        surr_df = collect_raw_data(pset_df, meta_vars=meta_variables)
+        surr_df = collect_raw_output(pset_df, meta_vars=meta_variables)
         surr_df = surr_df[surr_df['surr_var'] != 'neither'].copy()
         surr_df['surr_num'] = surr_num
 
@@ -99,7 +102,7 @@ def get_surrogate_data(surr_dfs_references, meta_variables, max_libsize, knn, gr
 
 
 def process_group_workflow(arg_tuple):
-    (grp_d, ind, real_dfs_references, surr_dfs_references, pctile_range, override, write,  config, calc_location) = arg_tuple
+    (grp_d, ind, real_dfs_references, surr_dfs_references, pctile_range, args,  config, calc_location, output_dir) = arg_tuple
     print('E', grp_d['E'], 'tau', grp_d['tau'], 'ind', ind, 'group_id', grp_d['group_id'], file=sys.stdout, flush=True)
     meta_variables = ['tau', 'E', 'train_len', 'train_ind_i', 'knn', 'Tp_flag',
                       'Tp', 'lag', 'Tp_lag_total', 'sample', 'weighted', 'target_var',
@@ -108,7 +111,9 @@ def process_group_workflow(arg_tuple):
     max_libsize = 325
     knn = 20
 
-    grp_path = calc_location / 'calc_refactor'/f'{grp_d["col_var_id"]}_{grp_d["target_var_id"]}'/ f'E{grp_d["E"]}_tau{grp_d["tau"]}'
+    grp_path = output_dir / f'{grp_d["col_var_id"]}_{grp_d["target_var_id"]}'/ f'E{grp_d["E"]}_tau{grp_d["tau"]}'
+
+    # grp_path = calc_location / 'calc_refactor'/f'{grp_d["col_var_id"]}_{grp_d["target_var_id"]}'/ f'E{grp_d["E"]}_tau{grp_d["tau"]}'
     grp_path.mkdir(exist_ok=True, parents=True)
 
     get_real_data(real_dfs_references, meta_variables, max_libsize, knn, grp_d['group_id'], grp_path)
@@ -128,11 +133,11 @@ if __name__ == '__main__':
         print('project name is required', file=sys.stderr, flush=True)
         sys.exit(0)
 
-    override = args.override  # if args.override not in [None else False
-    write_flag = args.write
-    if override is False:
-        if write_flag in ['append', None]:
-            write_flag = 'append'
+    # override = args.override  # if args.override not in [None else False
+    # write_flag = args.write
+    # if override is False:
+    #     if write_flag in ['append', None]:
+    #         write_flag = 'append'
 
     second_suffix = ''
 
@@ -146,10 +151,12 @@ if __name__ == '__main__':
     calc_log_path_new = calc_carc_mirrored / f'{carc_config_d.csvs.completed_runs_csv}.csv'
     calc_log2_df = pd.read_csv(calc_log_path_new, index_col=0, low_memory=False)
 
-    if Path('/Users/jlanders').exists() == True:
-        calc_location = proj_dir / config.local.calc_carc  # 'calc_local_tmp'
-    else:
-        calc_location = proj_dir / config.carc.calc_carc
+    calc_location = set_calc_path(args, proj_dir, config, second_suffix='')
+    output_dir = set_output_path(args, calc_location, config)
+    # if Path('/Users/jlanders').exists() == True:
+    #     calc_location = proj_dir / config.local.calc_carc  # 'calc_local_tmp'
+    # else:
+    #     calc_location = proj_dir / config.carc.calc_carc
 
     if args.group_file is not None:
         grp_csv = f'{args.group_file}.csv'
@@ -186,7 +193,7 @@ if __name__ == '__main__':
             surr_dfs_references = grp_df[grp_df['surr_var'] != 'neither'].copy()
 
             arg_tuples.append((grp_d, ind, real_dfs_references, surr_dfs_references, pctile_range,
-                                       override, write_flag, config, calc_location))
+                                       args, config, calc_location, output_dir))
 
             ind += 1
         num_cpus = int(os.getenv('SLURM_CPUS_PER_TASK', min([1, len(arg_tuples)])))
@@ -218,6 +225,6 @@ if __name__ == '__main__':
         surr_dfs_references = grp_df[grp_df['surr_var'] != 'neither'].copy()
 
         arg_tuple = (grp_d, index, real_dfs_references, surr_dfs_references, pctile_range,
-                                       override, write_flag, config, calc_location)
+                                       args, config, calc_location, output_dir)
 
         process_group_workflow(arg_tuple)
