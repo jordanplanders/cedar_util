@@ -11,6 +11,7 @@ proj_dir = Path(os.getcwd()).resolve().parents[0]
 sys.path.append(str(proj_dir/'ccm_proj_tools'))
 from utils.arg_parser import get_parser  # Importing the argument parser from arg_parser.py
 import importlib.util
+import pandas as pd
 from utils.config_parser import load_config
 from utils.location_helpers import *
 
@@ -153,7 +154,12 @@ def process_group(arg_tuple):
                 time.sleep(0.001)  # Sleep for a millisecond to ensure unique IDs
 
     print(f"CSV file {param_csv} has been created.")
+    param_df = pd.read_csv(param_csv)
+    print(f"{param_csv} has been read and has length: {len(param_df)}", file=sys.stdout, flush=True)
+    param_df = param_df.drop_duplicates(subset=param_df.columns.difference(['id']), keep='first')
+    print(f"{param_csv} duplicates have been dropped and now has length: {len(param_df)}", file=sys.stdout, flush=True)
 
+    param_df.to_csv(param_csv, index=False)
 
 if __name__ == '__main__':
     # Create the parser object from the argument parser file
