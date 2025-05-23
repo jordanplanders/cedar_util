@@ -1,10 +1,12 @@
+from operator import index
+
 import numpy as np
 import pandas as pd
 from pathlib import Path
 import os
 import sys
 import datetime
-
+import gc
 import re
 
 def streamline_cause(label, split_word='causes'):
@@ -34,7 +36,7 @@ def rel_reformat(df, rel):
     return df
 
 # Function to fetch and prepare real data
-def get_real_data(real_dfs_references, grp_path, meta_variables, max_libsize, knn, sample_size=500):
+def get_real_output(real_dfs_references, grp_path, meta_variables, max_libsize, knn, sample_size=500):
     if isinstance(real_dfs_references,list) ==True:
         if len(real_dfs_references) == 0:
             print('No real data found', file=sys.stderr, flush=True)
@@ -48,7 +50,7 @@ def get_real_data(real_dfs_references, grp_path, meta_variables, max_libsize, kn
             real_df_full = pd.read_csv(grp_path / files[0])
         # print(real_df_full.head(), file=sys.stderr, flush=True)
     else:
-        real_df_full = collect_raw_data(real_dfs_references, meta_vars=meta_variables)
+        real_df_full = collect_raw_output(real_dfs_references, meta_vars=meta_variables)
 
     real_df_full = real_df_full[real_df_full['LibSize'] >= knn].copy()
     if real_df_full.empty:
@@ -71,28 +73,30 @@ def get_real_data(real_dfs_references, grp_path, meta_variables, max_libsize, kn
 
 
 # Function to fetch and prepare surrogate data
-def get_surrogate_data(surr_dfs_references, grp_path, meta_variables, max_libsize, knn, _rel,
-                       sample_size=400):
+def get_surrogate_output(surr_dfs_references, grp_path, meta_variables, max_libsize, knn, _rel,
+                         sample_size=200):
     surr_dfs = []
     ctr = 0
     for df_csv_name in surr_dfs_references:
-        surr_df_full = pd.read_csv(grp_path / df_csv_name)
+        surr_df_full = pd.read_csv(grp_path / df_csv_name,low_memory=True, )#, chunksize=5000, low_memory=True)
         surr_df = relationship_filter(surr_df_full, _rel) #surr_df_full[surr_df_full['relation'].isin([_rel, _rel.replace('influences', 'causes')])].copy()
 
         if surr_df.empty:
+            print(f'Empty surrogate data for {df_csv_name}', file=sys.stderr, flush=True)
             continue
 
-        if 'surr_var' not in surr_df.columns:
-            surr_var = remove_numbers(df_csv_name.split('__')[1].split('.csv')[0])
-            if surr_var == 'tsi':
-                surr_var = 'TSI'
-            surr_df['surr_var'] = surr_var
+        surr_var = remove_numbers(df_csv_name.split('__')[1].split('.csv')[0])
+        if surr_var == 'tsi':
+            surr_var = 'TSI'
+        surr_df['surr_var'] = surr_var
 
         surr_df = surr_df[(surr_df['surr_var'] != 'neither') & (surr_df['LibSize'] >= knn) & (surr_df['LibSize'] <= max_libsize)].copy()
-        rel_dfs = [
-            rel_df.groupby('LibSize').apply(lambda x: x.sample(n=sample_size, replace=True)).reset_index(drop=True)
-            for _, rel_df in surr_df.groupby('surr_var')
-        ]
+        rel_dfs = []
+        for grp_rel, rel_df in surr_df.groupby('relation'):
+            # print('rel', grp_rel, file=sys.stderr, flush=True)
+            rel_dfs.append(rel_df.groupby('LibSize').apply(lambda x: x.sample(n=sample_size, replace=True)).reset_index(drop=True))
+
+        # print('attempt to concat', file=sys.stderr, flush=True)
         surr_df = pd.concat(rel_dfs).reset_index(drop=True)
         rel_dfs = []
         for surr_var, surr_df_i in surr_df.groupby('surr_var'):
@@ -100,26 +104,23 @@ def get_surrogate_data(surr_dfs_references, grp_path, meta_variables, max_libsiz
             surr_df_i['relation_s'] =surr_df_i['relation_s'].str.strip()
             surr_df_i['relation_s'] = surr_df_i['relation_s'].str.replace('  ', ' ')
             rel_dfs.append(surr_df_i)
+
         surr_df = pd.concat(rel_dfs).reset_index(drop=True)
-        # surr_df['relation_s'] = surr_df.apply(lambda row: row['relation'].replace(row['surr_var'], f'{row["surr_var"]} (surr)'), axis=1)
         if len(surr_df)>0:
             surr_dfs.append(surr_df)
             ctr += 1
-        # if ctr > 3:
-        #     continue
 
     if len(surr_dfs) == 0:
         print('No surrogate data found', file=sys.stderr, flush=True)
         return None
     else:
         surr_df_full = pd.concat(surr_dfs).reset_index(drop=True)
+        print('surr_df_full', surr_df_full.shape, file=sys.stderr, flush=True)
         return surr_df_full
 
-def collect_raw_data(dfs_references, meta_vars= None):
+def collect_raw_output(dfs_references, meta_vars= None):
     real_dfs = []
-    # print(grp_d, file=sys.stdout, flush=True)
     for pset_id, real_pset_ref in dfs_references.groupby('pset_id'):
-
         real_pset_ref_d = {}
         if meta_vars is not None:
             real_pset_ref_d = real_pset_ref[meta_vars].iloc[0].to_dict()
@@ -212,122 +213,41 @@ def write_query_string(query_keys, grp_d):
     return query_string
 
 
-def pull_percentile_data(df, filter_var='rho', groupby_var = 'LibSize',
-                         percentiles = None, sample_kwargs = None):
+def pull_raw_data(config, proj_dir, var_ids, alias=True):
 
-    if percentiles is None:
-        percentiles = [0.25, 0.75]
+    time_var = config.raw_data.time_var
+    time_var_alias = 'date'#config.raw_data.time_var_alias
 
-    if type(percentiles[0]) not in [float]:
-        print('percentiles should be float')
-        percentiles = [float(i) for i in percentiles]
+    data_dfs = []
+    var_aliases = []
+    for var_id in var_ids:
+        data_var = config.get_dynamic_attr("{var}.data_var", var_id)
+        if alias == True:
+            data_var_alias = config.get_dynamic_attr("{var}.var", var_id)
+        else:
+            data_var_alias = data_var
+        var_aliases.append(data_var_alias)
 
-    if sample_kwargs is None:
-        sample_kwargs = {'n': 1}
+        try:
+            var_data_csv = config.get_dynamic_attr("{var}.data_csv", var_id)
+        except:
+            var_data_csv = config.raw_data.data_csv
+        var_data = pd.read_csv(proj_dir / config.raw_data.name / f'{var_data_csv}.csv')
+        var_data = var_data[[time_var, data_var]].rename(columns=
+                                                                         {time_var: time_var_alias,
+                                                                          data_var: data_var_alias,
+                                                                          })
+        var_data = var_data.dropna(subset=[data_var_alias], how='all')
+        var_data = var_data[[time_var_alias, data_var_alias]].copy()
+        data_dfs.append(var_data)
 
-    if 'replace' not in sample_kwargs:
-        sample_kwargs['replace'] = False
+    data = data_dfs[0]
+    for var_df in data_dfs[1:]:
+        data = pd.merge(data, var_df, on=time_var_alias, how='outer')
 
-    flag = ''
-    iqr_list = []
-    for libsize, libsize_df in df.groupby(groupby_var):
-        # libsize_df = libsize_df.dropna()
+    data = data.dropna(subset=var_aliases, how='all')
 
-        rho_l = libsize_df[filter_var].quantile(percentiles[0])
-        rho_u = libsize_df[filter_var].quantile(percentiles[1])
-        min_n = []
-        _df_sub = libsize_df[(libsize_df[filter_var] >= rho_l) & (libsize_df[filter_var] <= rho_u)].copy()
-        if len(_df_sub) <1:
-            continue
-
-        if 'n' in sample_kwargs:
-            if sample_kwargs['replace'] is True:
-                if len(_df_sub)/sample_kwargs['n']<.3:
-                    sample_kwargs['n'] = int(len(_df_sub)/.3)
-                    flag = 'n'
-            else:
-                if len(_df_sub) < sample_kwargs['n']:
-                    sample_kwargs['n'] = len(_df_sub)
-                    flag = 'n'
-                # print(f'libsize:{libsize}, rho_l:{rho_l}, rho_u:{rho_u}, n:{len(_df_sub)}')
-        if len(_df_sub) > 0:
-            iqr_list.append(_df_sub.sample(**sample_kwargs))
-            min_n.append(len(iqr_list[-1]))
-
-    if len(min_n) > 0:
-        min_n = min(min_n)
-    else:
-        min_n = 0
-
-    if len(iqr_list) > 0:
-        libsize_sub = pd.concat(iqr_list)
-        if flag !='n':
-            flag = 'pass'
-    else:
-        libsize_sub = df
-        flag = 'no_sampling'
-    return libsize_sub, flag, min_n
-
-
-def get_group_sizes(df, filter_var='rho', groupby_var = 'LibSize',
-                         percentiles = None, sample_kwargs = None):
-
-    if percentiles is None:
-        percentiles = [0.25, 0.75]
-
-    if type(percentiles[0]) not in [float]:
-        print('percentiles should be float')
-        percentiles = [float(i) for i in percentiles]
-
-    iqr_list = []
-    for libsize, libsize_df in df.groupby(groupby_var):
-        # libsize_df = libsize_df.dropna()
-
-        rho_l = libsize_df[filter_var].quantile(percentiles[0])
-        rho_u = libsize_df[filter_var].quantile(percentiles[1])
-        iqr_list.append(len(libsize_df[(libsize_df[filter_var] >= rho_l) & (libsize_df[filter_var] <= rho_u)]))
-
-    return iqr_list
-
-def get_sample_rep_n(libize_grp_sizes):
-    if min(libize_grp_sizes) < 200:
-        sample_n = int(.3 * min(libize_grp_sizes))
-        rep_times = 7
-    elif min(libize_grp_sizes) < 1000:
-        sample_n = int(.5 * min(libize_grp_sizes))
-        rep_times = 5
-    else:
-        sample_n = min(int(.7 * min(libize_grp_sizes)), 800)
-        rep_times = 3
-    return sample_n, rep_times
-
-
-def bootstrap_raw_output(raw_df_full, filter_var, groupby_var, pctile_range, sample_kwargs=None, grp_d=None):
-    libize_grp_sizes = get_group_sizes(raw_df_full, filter_var=filter_var,
-                                       groupby_var=groupby_var, percentiles=pctile_range)
-
-    sample_n, rep_times = get_sample_rep_n(libize_grp_sizes)
-    if sample_kwargs is None:
-        sample_kwargs = {'replace': False}
-    sample_kwargs['n'] = sample_n
-    if grp_d is None:
-        grp_d = {'group_id':'regression sampling'}#raw_df_full['group_id'].iloc[0]}
-
-    sampling_errors = []
-    samples = []
-    for _ in range(rep_times):
-        sampling_df, sampling_flag, min_n = pull_percentile_data(raw_df_full, filter_var=filter_var,
-                                                                      groupby_var=groupby_var,
-                                                                      percentiles=pctile_range, sample_kwargs=sample_kwargs)
-
-        if sampling_flag != 'pass':
-            flag_text = f'issue sampling real {grp_d["group_id"]}: {sampling_flag}, min_n={min_n}, specified min_n={min(libize_grp_sizes)}, sample_n={sample_n}, reps={rep_times}'
-            if flag_text not in sampling_errors:
-                sampling_errors.append(flag_text)
-
-        samples.append(sampling_df)
-    return samples, sampling_errors
-
+    return data
 
 
 def check_empty_concat(lst):
