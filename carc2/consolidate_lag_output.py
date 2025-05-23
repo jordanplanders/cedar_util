@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import time
 from utils.arg_parser import get_parser
 from utils.config_parser import load_config
-from utils.data_access import collect_raw_data, get_weighted_flag, write_query_string , set_df_weighted
+from utils.data_access import collect_raw_output, get_weighted_flag, write_query_string , set_df_weighted
  # was calc_convergence_testing_approach2.py
 
 
@@ -31,7 +31,7 @@ def process_group(args):
         weighted_flag = 'unweighted'
 
     ## Processing
-    real_df = collect_raw_data(real_dfs_references)
+    real_df = collect_raw_output(real_dfs_references)
 
     lag_ds = []
     for traits,  rel_lag_df in real_df.groupby(['relation', 'lag']):
