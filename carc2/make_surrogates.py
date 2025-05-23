@@ -7,6 +7,7 @@ import pyEDM as pe
 import yaml
 from utils.arg_parser import get_parser
 from utils.config_parser import load_config
+from utils.data_access import pull_raw_data
 
 from utils.location_helpers import *
 import copy
@@ -183,8 +184,8 @@ def increment_var_name(col_name, increment, prefix):
 
 def process_group(arg_tuple):
     var_id, data_var, var_alias, num_surrogates, surr_group, proj_path, df = arg_tuple
-    print(f'var_id: {var_id}, data_var: {data_var}, var_alias: {var_alias}', file=sys.stdout, flush=True)
-
+    print(f'var_id: {var_id}, data_var: {data_var}, var_alias: {var_alias}, len: {len(df)}', file=sys.stdout, flush=True)
+    print(df.columns, file=sys.stdout, flush=True)
     csv_file_name = f'pe_{surr_group}_surr_{var_id}_{var_alias}.csv'
 
     start_index = 0 if len(df) % 2 == 0 else 1
@@ -195,6 +196,7 @@ def process_group(arg_tuple):
 
     pattern = r'\d+'
     surr_path = proj_path / 'surrogates' / csv_file_name
+    print('surr_path', surr_path, file=sys.stdout, flush=True)
     if surr_path.exists():
         existing_surrs = pd.read_csv(surr_path, index_col=0)
         dfs.append(existing_surrs)
@@ -258,32 +260,40 @@ if __name__ == '__main__':
 
     surr_arg_tuples = []
 
-    if args.vars:
-        for var_id in args.vars:
-            var_conf = getattr(config, var_id)
-            data_var = var_conf.data_var
-            var_alias = var_conf.var
-            tmp_data_df = data_df.rename(columns={time_var: 'date', data_var: var_alias})
-            surr_arg_tuples.append((var_id, data_var, var_alias, num_surrogates, surr_group, proj_dir, tmp_data_df))
-
-    elif spec_config:
-        for var_type in ['col_var', 'target_var']:
-            if hasattr(spec_config, var_type):
-                var_id = getattr(spec_config, var_type).id
-                var_conf = getattr(spec_config, var_id)
-                data_var = var_conf.data_var
-                var_alias = var_conf.var
-                tmp_data_df = data_df.rename(columns={time_var: 'date', data_var: var_alias})
-                surr_arg_tuples.append((var_id, data_var, var_alias, num_surrogates, surr_group, proj_dir, tmp_data_df))
-
+    if args.vars is not None:
+        var_ids = args.vars
     else:
         var_ids = copy.deepcopy(config.col.ids) + config.target.ids
-        for var_id in var_ids:
-            var_conf = getattr(config, var_id)
-            data_var = var_conf.data_var
-            var_alias = var_conf.var
-            tmp_data_df = data_df.rename(columns={time_var: 'date', data_var: var_alias})
-            surr_arg_tuples.append((var_id, data_var, var_alias, num_surrogates, surr_group, proj_dir, tmp_data_df))
+
+    for var_id in var_ids:
+        var_conf = getattr(config, var_id)
+        data_var = var_conf.data_var
+        var_alias = var_conf.var
+        data_df = pull_raw_data(config, proj_dir, [var_id])
+        # tmp_data_df = data_df.rename(columns={time_var: 'date', data_var: var_alias})
+        surr_arg_tuples.append((var_id, data_var, var_alias, num_surrogates, surr_group, proj_dir, data_df))
+
+    # elif spec_config:
+    #     for var_type in ['col_var', 'target_var']:
+    #         if hasattr(spec_config, var_type):
+    #             var_ids = getattr(spec_config, var_type).id
+    #             for var_id in var_ids:
+    #                 var_conf = getattr(spec_config, var_id)
+    #                 data_var = var_conf.data_var
+    #                 var_alias = var_conf.var
+    #                 data_df = pull_raw_data(spec_config, proj_dir, [var_id])
+    #                 tmp_data_df = data_df.rename(columns={time_var: 'date', data_var: var_alias})
+    #             surr_arg_tuples.append((var_id, data_var, var_alias, num_surrogates, surr_group, proj_dir, tmp_data_df))
+
+    # else:
+    #     var_ids = copy.deepcopy(config.col.ids) + config.target.ids
+    #     for var_id in var_ids:
+    #         var_conf = getattr(config, var_id)
+    #         data_var = var_conf.data_var
+    #         var_alias = var_conf.var
+    #         print('var_id', var_id, 'data_var', data_var, 'var_alias', var_alias, file=sys.stdout, flush=True)
+    #         tmp_data_df = data_df.rename(columns={time_var: 'date', data_var: var_alias})
+    #         surr_arg_tuples.append((var_id, data_var, var_alias, num_surrogates, surr_group, proj_dir, tmp_data_df))
 
     for arg_tuple in surr_arg_tuples:
         csv_file = process_group(arg_tuple)
@@ -296,7 +306,10 @@ if __name__ == '__main__':
             if csv_file not in existing:
                 existing.append(csv_file)
         else:
-            setattr(var_conf, 'surr_file_name', [csv_file])# else [existing, csv_file])
+            existing = [csv_file]
+        setattr(var_conf, 'surr_file_name', existing)# else [existing, csv_file])
+        config.save_config()
+
 
         # Update spec config if applicable
         if spec_config:
@@ -306,10 +319,10 @@ if __name__ == '__main__':
                 if csv_file not in existing_spec:
                     existing_spec.append(csv_file)
             else:
-                setattr(var_conf_spec, 'surr_file_name', [csv_file])# else [existing_spec, csv_file])
+                existing_spec = [csv_file]
+            setattr(var_conf_spec, 'surr_file_name', existing_spec)# else [existing_spec, csv_file])
 
-    # Save updates
-    config.save_config()
-    if spec_config_path:
-        with open(spec_config_path, 'w') as f:
-            yaml.dump(spec_config.to_dict(), f)
+            # Save updates
+            if spec_config_path:
+                with open(spec_config_path, 'w') as f:
+                    yaml.dump(spec_config.to_dict(), f)
