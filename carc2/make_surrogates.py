@@ -249,24 +249,28 @@ if __name__ == '__main__':
         spec_config = load_config(spec_config_path)
 
     # Load data
-    if spec_config and spec_config.has_nested_attribute("raw_data.data_csv"):
-        data_csv = spec_config.raw_data.data_csv
-        time_var = spec_config.raw_data.time_var
-        data_df = pd.read_csv(proj_dir / 'data' / f'{data_csv}.csv', index_col=0)
-    else:
-        data_csv = config.raw_data.data_csv
-        time_var = config.raw_data.time_var
-        data_df = pd.read_csv(proj_dir / config.raw_data.name / f'{data_csv}.csv', index_col=0)
+    # if spec_config and spec_config.has_nested_attribute("raw_data.data_csv"):
+    #     data_csv = spec_config.raw_data.data_csv
+    #     time_var = spec_config.raw_data.time_var
+    #     data_df = pd.read_csv(proj_dir / 'data' / f'{data_csv}.csv', index_col=0)
+    # else:
+    #     data_csv = config.raw_data.data_csv
+    #     time_var = config.raw_data.time_var
+    #     data_df = pd.read_csv(proj_dir / config.raw_data.name / f'{data_csv}.csv', index_col=0)
 
     surr_arg_tuples = []
-
-    if args.vars is not None:
+    if args.vars not in [None, '', ['None'], 'None', [None]]:
         var_ids = args.vars
+        print('vars', args.vars, file=sys.stdout, flush=True)
     else:
         var_ids = copy.deepcopy(config.col.ids) + config.target.ids
-
+    print('var_ids', var_ids, file=sys.stdout, flush=True)
     for var_id in var_ids:
         var_conf = getattr(config, var_id)
+        data_csv = var_conf.data_csv
+        # time_var = spec_config.raw_data.time_var
+        data_df = pd.read_csv(proj_dir / 'data' / f'{data_csv}.csv', index_col=0)
+
         data_var = var_conf.data_var
         var_alias = var_conf.var
         data_df = pull_raw_data(config, proj_dir, [var_id])
