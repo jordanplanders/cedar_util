@@ -84,7 +84,7 @@ parameters_d = {
 
 
 # Function to process a group of arguments for parameter combinations
-def process_group(arg_tuple):
+def process_group(arg_tuple, write_mode='a'):
     (col_var_id, col_var_alias, target_var_id, target_var_alias,
      surrogate_vars,surrogate_range,
      param_flags, param_csv, parameters) = arg_tuple
@@ -131,7 +131,7 @@ def process_group(arg_tuple):
         parameter_sets.append(param_values)  # Use itertools.product for all combinations
     # Determine if the CSV file already exists and set write mode
     skip_header = True
-    write_mode = 'a'
+
     if param_csv.exists()==False:  # If the CSV file does not exist, create a new one
         write_mode = 'w'
         skip_header = False
@@ -153,13 +153,40 @@ def process_group(arg_tuple):
                 writer.writerow(new_row)
                 time.sleep(0.001)  # Sleep for a millisecond to ensure unique IDs
 
-    print(f"CSV file {param_csv} has been created.")
-    param_df = pd.read_csv(param_csv)
-    print(f"{param_csv} has been read and has length: {len(param_df)}", file=sys.stdout, flush=True)
-    param_df = param_df.drop_duplicates(subset=param_df.columns.difference(['id']), keep='first')
-    print(f"{param_csv} duplicates have been dropped and now has length: {len(param_df)}", file=sys.stdout, flush=True)
+    # print(f"CSV file {param_csv} has been created.")
+    # param_df = pd.read_csv(param_csv)
+    # print(f"{param_csv} has been read and has length: {len(param_df)}", file=sys.stdout, flush=True)
+    # param_df = param_df.drop_duplicates(subset=param_df.columns.difference(['id']), keep='first')
+    # print(f"{param_csv} duplicates have been dropped and now has length: {len(param_df)}", file=sys.stdout, flush=True)
 
-    param_df.to_csv(param_csv, index=False)
+    # param_df.to_csv(param_csv, index=False)
+
+def tidy_up(param_csv_paths, keep='first'):
+    param_csv_paths = list(set(param_csv_paths))
+    for param_csv_path in param_csv_paths:
+        param_df = pd.read_csv(param_csv_path)
+        print(f"{param_csv_path} has been read and has length: {len(param_df)}", file=sys.stdout, flush=True)
+        param_df = param_df.drop_duplicates(subset=param_df.columns.difference(['id']), keep=keep)
+        print(f"{param_csv_path} duplicates have been dropped and now has length: {len(param_df)}", file=sys.stdout,
+              flush=True)
+        param_df_summary = (
+            param_df.groupby(['col_var_id', 'target_var_id', 'E', 'tau', 'lag', 'surr_var'])
+            .agg(min_surr_num=('surr_num', 'min'), max_surr_num=('surr_num', 'max'))
+            .reset_index()
+        )
+        param_df_summary.sort_values(by=['col_var_id', 'target_var_id', 'max_surr_num', 'E', 'tau', 'lag', 'surr_var'], inplace=True)
+        # for grp_tupl, grp_df in param_df.groupby(['col_var_id', 'target_var_id', 'E', 'tau', 'lag', 'surr_var']):
+        #     grp_df['min_surr_num'] = grp_df['surr_num'].min()
+        #     grp_df['max_surr_num'] = grp_df['surr_num'].max()
+        #     tmp_list.append(grp_df)
+        # param_df_summary = pd.concat(tmp_list).reset_index(drop=True)
+        if isinstance(param_csv_path, str):
+            param_csv_path = Path(param_csv_path)
+        summary_csv_path = param_csv_path.parent / f'summary_{param_csv_path.name}'
+        param_df_summary.to_csv(summary_csv_path, index=False)
+        print(f"Summary CSV file {summary_csv_path} has been created.", file=sys.stdout, flush=True)
+
+        param_df.to_csv(param_csv_path, index=False)
 
 if __name__ == '__main__':
     # Create the parser object from the argument parser file
@@ -191,8 +218,9 @@ if __name__ == '__main__':
     if args.parameters is not None:
         parameter_flag = args.parameters  # Store the parameter file name
     else:
-        print('Parameter file is required', file=sys.stdout, flush=True)
-        sys.exit(0)
+        print('Parameter file is preferred', file=sys.stdout, flush=True)
+        parameter_flag = 'params'
+        # sys.exit(0)
 
     parameters_dir = proj_dir / 'parameters'
     # if
@@ -218,7 +246,7 @@ if __name__ == '__main__':
         param_flags = args.flags
 
     # Create the path to the output CSV file where parameter combinations will be stored
-    param_csv_path = proj_dir / 'parameters' / f'{parameter_flag}.csv'
+    # param_csv_path = proj_dir / 'parameters' / f'{parameter_flag}.csv'
 
     # Prepare variable ID tuples for processing
     var_id_tuples = []
@@ -242,34 +270,75 @@ if __name__ == '__main__':
         if (args.vars[0] != 'surrogate'):
             specified_vars = True
 
+    param_csv_paths = []
     if specified_vars ==True:
-        if args.vars[0] in config.col_var_ids:
-            col_var_id = args.vars[0]
-        elif args.vars[0] in config.target_var_ids:
-            target_var_id = args.vars[0]
-        if args.vars[1] in config.col_var_ids:
-            col_var_id = args.vars[1]
-        elif args.vars[1] in config.target_var_ids:
-            target_var_id = args.vars[1]
+        col_var_ids = []
+        target_var_ids= []
+
+        for var in args.vars:
+            if var in config.col_var_ids:
+                col_var_ids.append(var)
+            elif var in config.target_var_ids:
+                target_var_ids.append(var)
+
+        if len(col_var_ids) == 0:
+            col_var_ids = config.col.ids
+
+        if len(target_var_ids) == 0:
+            target_var_ids = config.target.ids
+    else:
+        col_var_ids = config.col.ids
+        target_var_ids = config.target.ids
+
+        # if args.vars[0] in config.col_var_ids:
+        #     col_var_id = args.vars[0]
+        # elif args.vars[0] in config.target_var_ids:
+        #     target_var_id = args.vars[0]
+        # if args.vars[1] in config.col_var_ids:
+        #     col_var_id = args.vars[1]
+        # elif args.vars[1] in config.target_var_ids:
+        #     target_var_id = args.vars[1]
+
+        # if target_var_id is None:
+        #     target_var_ids = config.target.ids
+        # if col_var_id is None:
+        #     col_var_ids = config.col.ids
+
+
 
         # target_var_id = args.vars[1]
-        col_var_alias = config.col.var
-        target_var_alias = config.target.var
-
-        var_id_tuples.append((col_var_id, col_var_alias, target_var_id, target_var_alias,
-                              surrogate_vars, surrogate_range,
-                              param_flags, param_csv_path, parameters_d))
-    else:
+    #     col_var_alias = config.col.var
+    #     target_var_alias = config.target.var
+    #     param_csv_path = proj_dir/'parameters'/f'params_bycol_{col_var_id}.csv'
+    #     param_csv_paths.append(param_csv_path)
+    #
+    #     var_id_tuples.append((col_var_id, col_var_alias, target_var_id, target_var_alias,
+    #                           surrogate_vars, surrogate_range,
+    #                           param_flags, param_csv_path, parameters_d))
+    # else:
         # If no variables are provided, iterate over all column and target variable IDs in the config
-        for col_var_id in config.col.ids:
-            for target_var_id in config.target.ids:
-                col_var_alias = config.col.var
-                target_var_alias = config.target.var
+    for col_var_id in col_var_ids:
+        for target_var_id in target_var_ids:
+            col_var_alias = config.col.var
+            target_var_alias = config.target.var
+            param_csv_path = proj_dir / 'parameters' / f'params_bycol_{col_var_id}.csv'
+            param_csv_paths.append(param_csv_path)
 
-                var_id_tuples.append((col_var_id, col_var_alias, target_var_id, target_var_alias,
-                                      surrogate_vars,surrogate_range,
-                                      param_flags, param_csv_path, parameters_d))
+            var_id_tuples.append((col_var_id, col_var_alias, target_var_id, target_var_alias,
+                                  surrogate_vars,surrogate_range,
+                                  param_flags, param_csv_path, parameters_d))
 
     # Process each group of variables and parameters
     for var_id_tuple in var_id_tuples:
         process_group(var_id_tuple)
+
+    tidy_up(param_csv_paths)
+
+    # param_csv_paths = list(set(param_csv_paths))
+    # for param_csv_path in param_csv_paths:
+    #     param_df = pd.read_csv(param_csv_path)
+    #     print(f"{param_csv_path} has been read and has length: {len(param_df)}", file=sys.stdout, flush=True)
+    #     param_df = param_df.drop_duplicates(subset=param_df.columns.difference(['id']), keep='first')
+    #     print(f"{param_csv_path} duplicates have been dropped and now has length: {len(param_df)}", file=sys.stdout, flush=True)
+    #
+    #     param_df.to_csv(param_csv_path, index=False)
