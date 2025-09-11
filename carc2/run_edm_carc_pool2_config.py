@@ -1,19 +1,16 @@
-import os
-import sys
 import time
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pyEDM as pe
-import yaml
+from datetime import datetime
 
-from local2.plot_tau_res_ts import calc_location
 from utils.arg_parser import get_parser
 from utils.config_parser import load_config
 from utils.location_helpers import *
 from utils.data_access import pull_raw_data
+from utils.location_helpers import check_exists
 from utils.run_tools import decide_file_handling
 
 from ccm_utils import process_output as po
@@ -21,7 +18,8 @@ from ccm_utils import process_output as po
 
 
 def run_experiment(arg_tuple):
-    pset, output_dir, time_offset, start_ind, config, proj_dir = arg_tuple
+    pset, output_dir, output_file_name, time_offset, start_ind, config, proj_dir, cpu_count, self_predict = arg_tuple
+
     # with open(calc_dir.parent/'proj_config.yaml', 'r') as file:
     #     config = yaml.safe_load(file)
 
@@ -33,12 +31,19 @@ def run_experiment(arg_tuple):
         pset['pset_id'] = pset['id']
 
     run_config = SimpleNamespace(**pset)
+    print(run_config)
 
     dir_path = output_dir #/ str(run_config.pset_id)
-    df_csv_name = f'{run_config.pset_id}_E{run_config.E}_tau{run_config.tau}__{run_config.surr_var}{run_config.surr_num}.csv'  # 'df_{}.csv'.format(run_config.run_id)
+    # try:
+    #     output_file_format = config.output.file_format
+    # except:
+    #     output_file_format = 'psetid_E_tau__surrvarsurrnum'
+    #
+    # output_file_name = output_file_format.replace('psetid', str(run_config.pset_id)).replace('E', 'E'+str(run_config.E)).replace('tau', 'tau'+str(run_config.tau)).replace('lag', 'lag'+str(run_config.lag)).replace('surrvar', str(run_config.surr_var)).replace('surrnum', str(run_config.surr_num))
+    df_csv_name = f'{output_file_name}.csv' if '.csv' not in output_file_name else output_file_name#f'{run_config.pset_id}_E{run_config.E}_tau{run_config.tau}__{run_config.surr_var}{run_config.surr_num}.csv'  # 'df_{}.csv'.format(run_config.run_id)
     # print(df_csv_name, file=sys.stdout, flush=True)
     df_path = dir_path / df_csv_name
-    print('running', df_path, df_path.exists(), 'start_ind', start_ind, pset, file=sys.stdout, flush=True)
+    print('running', datetime.now(), df_path, df_path.exists(), 'start_ind', start_ind, pset, 'how many cores:', os.cpu_count(), file=sys.stdout, flush=True)
 
     start_time = time.time()
     libSizes = np.arange(run_config.knn + 1, config.ccm_config.max_libsize, config.ccm_config.libsize_step)
@@ -104,12 +109,20 @@ def run_experiment(arg_tuple):
     train_len = (len(data) - run_config.train_ind_i) - run_config.exclusion_radius
 
     # Load the data
-    train_ind_f = min([run_config.train_ind_i + train_len + run_config.exclusion_radius, len(data)])
-    df_sub = data.iloc[run_config.train_ind_i:train_ind_f].copy().reset_index()
-    shifted = df_sub.copy()
+    shifted = data.copy()
     lag = run_config.lag if np.isnan(run_config.lag)==False else 0
     shifted[run_config.target_var] = shifted[run_config.target_var].shift(lag)
     shifted = shifted.dropna()
+    train_ind_f = min([run_config.train_ind_i + train_len + run_config.exclusion_radius, len(shifted)])
+    shifted = shifted.iloc[run_config.train_ind_i:train_ind_f].copy().reset_index()
+    #
+    #
+    # train_ind_f = min([run_config.train_ind_i + train_len + run_config.exclusion_radius, len(data)])
+    # df_sub = data.iloc[run_config.train_ind_i:train_ind_f].copy().reset_index()
+    # shifted = df_sub.copy()
+    # lag = run_config.lag if np.isnan(run_config.lag)==False else 0
+    # shifted[run_config.target_var] = shifted[run_config.target_var].shift(lag)
+    # shifted = shifted.dropna()
 
     try:
         pred_num = config.ccm_config.pred_num
@@ -118,6 +131,8 @@ def run_experiment(arg_tuple):
 
     # note: at some point "embedded=False" will not always be correct
     # rever to run_config.sample
+    # cpu_allocation = os.cpu_count() if os.cpu_count() is not None and os.cpu_count()<17  else 16
+    print('cpu_count', cpu_count, file=sys.stdout, flush=True)
     ccm_out = pe.CCM(dataFrame=shifted,
                      E=run_config.E, Tp=run_config.Tp, tau=-run_config.tau, exclusionRadius=run_config.exclusion_radius,
                      knn=run_config.knn, verbose=False,
@@ -126,8 +141,8 @@ def run_experiment(arg_tuple):
                      embedded=False, seed=None,
                      weighted=run_config.weighted, includeData=True, returnObject=True,
                      pred_num=pred_num,
-                     # num_threads=6,
-                     showPlot=False, noTime=False)
+                     num_threads=cpu_count,
+                     showPlot=False, noTime=False, selfPredict=self_predict)
 
     ccm_out_df = pd.concat(
         [po.unpack_ccm_output(ccm_out.CrossMapList[ip]) for ip in range(len(ccm_out.CrossMapList))])
@@ -167,14 +182,6 @@ def write_to_file(ccm_out_df, df_path, overwrite=False):
     print('!\twrote to file: ', df_path)
 
 
-def check_exists(pset_id, calc_dir):
-    calc_dir_list = [entry.name for entry in calc_dir.iterdir() if entry.is_dir()]
-    if str(pset_id) in calc_dir_list:
-        return True
-    else:
-        return False
-
-
 if __name__ == '__main__':
     # grab parameter file
     parser = get_parser()
@@ -208,6 +215,11 @@ if __name__ == '__main__':
     if args.flags is not None:
         flags += args.flags
 
+    if args.cpus is not None:
+        cpu_count = int(args.cpus)
+    else:
+        cpu_count = 4
+
     num_inds = 10
     if args.inds is not None:
         start_ind = int(args.inds[-1])
@@ -224,12 +236,10 @@ if __name__ == '__main__':
         spec_config_yml = args.config
         config = load_config(proj_dir / f'{spec_config_yml}.yaml')
 
-    # if args.override:
-    #     override = args.override
-    # else:
-    #     override = False
-
     parameter_df = parameter_df.loc[start_ind:end_ind, :].copy()
+    for int_col in ['E', 'tau', 'lag', 'knn', 'train_ind_i', 'Tp', 'Tp_lag_total', 'sample', 'id']:
+        if int_col in parameter_df.columns:
+            parameter_df[int_col] = parameter_df[int_col].astype(int)
     parameter_ds = parameter_df.to_dict(orient='records')
 
     second_suffix = ''
@@ -238,19 +248,11 @@ if __name__ == '__main__':
 
     calc_location = set_calc_path(args, proj_dir, config, second_suffix)
     output_dir = set_output_path(args, calc_location, config)
-
-    # if Path('/Users/jlanders').exists() == True:
-    #     calc_location = proj_dir / (config.local.calc_carc + f'{second_suffix}')  # 'calc_local_tmp'
-    # else:
-    #     calc_location = proj_dir / (config.carc.calc_carc + f'{second_suffix}')
-
-    # calc_dir = proj_dir / (config.calc_dir + f'{second_suffix}')
     calc_location.mkdir(parents=True, exist_ok=True)
-
-    # calc_dir_list = [entry.name for entry in calc_dir.iterdir() if entry.is_dir()]
 
     logs = []
     log_element = []
+    self_predict = False
     if Path('/Users/jlanders').exists():
         print('local', file=sys.stdout, flush=True)
 
@@ -264,14 +266,18 @@ if __name__ == '__main__':
                 if 'id' in pset_d:
                     pset_d['pset_id'] = pset_d['id']
 
-            calc_sub_location = output_dir /f'{pset_d["col_var_id"]}_{pset_d["target_var_id"]}' / f'E{pset_d["E"]}_tau{pset_d["tau"]}'
+            calc_sub_location = set_grp_path(output_dir, pset_d, config=config)# /f'tp_{pset_d["Tp"]}'/f'{pset_d["col_var_id"]}_{pset_d["target_var_id"]}' / f'E{pset_d["E"]}_tau{pset_d["tau"]}'
             calc_sub_location.mkdir(parents=True, exist_ok=True)
             calc_dir_list = os.listdir(calc_sub_location)
 
-            file_name = f"{pset_d['pset_id']}_E{pset_d['E']}_tau{pset_d['tau']}__{pset_d['surr_var']}{pset_d['surr_num']}.csv"
-            existence = False
-            if file_name in calc_dir_list:
-                existence = True
+            try:
+                file_name_template = config.output.file_format
+                file_name = f'{replace(file_name_template, pset_d)}.csv'
+            except:
+                file_name = f"{pset_d['pset_id']}_E{pset_d['E']}_tau{pset_d['tau']}__{pset_d['surr_var']}{pset_d['surr_num']}.csv"
+
+            pset_exists, stem_exists = check_exists(file_name, calc_sub_location) # if file_name in calc_dir_list else (False, False)
+            existence = pset_exists # this is strong existence criteria... if want to check for stem existence, use stem_exists
 
             run_continue, overwrite = decide_file_handling(args, existence)
             # print('run_continue', run_continue, 'overwrite', overwrite,file_name,  file=sys.stdout, flush=True)
@@ -285,7 +291,8 @@ if __name__ == '__main__':
             # print(file_name, calc_sub_location, calc_dir_list, '\nrun_continue: ', run_continue, ', overwrite: ', overwrite,f'-- {file_name}', '\n\trunning ', pset_d['pset_id'], pset_d['col_var_id'], pset_d['target_var_id'], pset_d['E'],
             #       pset_d['tau'],
             #       pset_d['lag'], file=sys.stdout, flush=True)
-            candidate_tuple = (pset_d, calc_sub_location, time_offset, start_ind + time_offset, config, proj_dir)
+            print('how many cores:', os.cpu_count(), file=sys.stdout, flush=True)
+            candidate_tuple = (pset_d, calc_sub_location, file_name, time_offset, start_ind + time_offset, config, proj_dir, cpu_count, self_predict)
             write_to_file(*run_experiment(candidate_tuple), overwrite=overwrite)
 
 
@@ -320,12 +327,18 @@ if __name__ == '__main__':
             pset_d['target_var_id'] = pset_d[f'{config["target_var"]}_id']
         arg_tuples = []
         # for time_offset, pset in enumerate(parameter_ds):
-        calc_sub_location = calc_location / f'{pset_d["col_var_id"]}_{pset_d["target_var_id"]}' / f'E{pset_d["E"]}_tau{pset_d["tau"]}'
+        calc_sub_location = set_grp_path(output_dir, pset_d, config=config) #calc_location / f'{pset_d["col_var_id"]}_{pset_d["target_var_id"]}' / f'E{pset_d["E"]}_tau{pset_d["tau"]}'
         calc_sub_location.mkdir(parents=True, exist_ok=True)
         calc_dir_list = os.listdir(calc_sub_location)
 
-        file_name = f"{pset_d['pset_id']}_E{pset_d['E']}_tau{pset_d['tau']}__{pset_d['surr_var']}{pset_d['surr_num']}.csv"
-        existence = True if file_name in calc_dir_list else False
+        try:
+            file_name_template = config.output.file_format
+            file_name = f'{replace(file_name_template, pset_d)}.csv'
+        except:
+            file_name = f"{pset_d['pset_id']}_E{pset_d['E']}_tau{pset_d['tau']}__{pset_d['surr_var']}{pset_d['surr_num']}.csv"
+        pset_exists, stem_exists = check_exists(file_name,
+                                                calc_sub_location)  # if file_name in calc_dir_list else (False, False)
+        existence = pset_exists  # this is strong existence criteria... if want to check for stem existence, use stem_exists
         print('file_name', file_name, 'existence', existence, file=sys.stdout, flush=True)
         run_continue, overwrite = decide_file_handling(args, existence)
 
@@ -333,7 +346,7 @@ if __name__ == '__main__':
             print('skipping', pset_d['pset_id'], pset_d['col_var_id'], pset_d['target_var_id'], pset_d['E'], pset_d['tau'],
                   pset_d['lag'], file=sys.stdout, flush=True)
         else:
-            candidate_tuple = (pset_d, calc_sub_location, time_offset, start_ind + time_offset, config, proj_dir)
+            candidate_tuple = (pset_d, calc_sub_location, file_name, time_offset, start_ind + time_offset, config, proj_dir, cpu_count, self_predict)
             print('prepping', pset_d['pset_id'], pset_d['col_var_id'], pset_d['target_var_id'], pset_d['E'],
                   pset_d['tau'],
                   pset_d['lag'], file=sys.stdout, flush=True)
