@@ -103,6 +103,12 @@ def get_surrogate_output(surr_dfs_references, grp_path, meta_variables, max_libs
     surr_dfs = []
     ctr = 0
     for df_csv_name in surr_dfs_references:
+        if isinstance(df_csv_name, str) is True:
+            if 'neither' in df_csv_name:
+                continue
+        elif 'neither' in df_csv_name.name:
+            continue
+
         try:
             surr_df_full = pd.read_csv(grp_path / df_csv_name,low_memory=True, )#, chunksize=5000, low_memory=True)
         except:
@@ -114,8 +120,9 @@ def get_surrogate_output(surr_dfs_references, grp_path, meta_variables, max_libs
                 print(f'Empty surrogate data for {df_csv_name}', file=sys.stderr, flush=True)
             continue
 
-        surr_var = remove_numbers(df_csv_name.split('__')[1].split('.csv')[0])
-        surr_num = int(extract_numbers(df_csv_name.split('__')[1].split('.csv')[0]))
+        df_csv_name_str = df_csv_name if isinstance(df_csv_name, str) is True else df_csv_name.name
+        surr_var = remove_numbers(df_csv_name_str.split('__')[1].split('.csv')[0])
+        surr_num = int(extract_numbers(df_csv_name_str.split('__')[1].split('.csv')[0]))
         if surr_nums is not None:
             if surr_num not in surr_nums:
                 # print(f'Skipping surrogate {surr_var} {surr_num} not in sur_nums', file=sys.stderr, flush=True)
