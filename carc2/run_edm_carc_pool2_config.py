@@ -15,58 +15,57 @@ from utils.run_tools import decide_file_handling
 
 from ccm_utils import process_output as po
 
+def get_run_config(pset):
+    run_config = SimpleNamespace(**pset)
+    return run_config
+
+def check_csv_ext(output_file_name):
+    if '.csv' not in output_file_name:
+        output_file_name = f'{output_file_name}.csv'
+    return output_file_name
+
+def print_log_line(script, function, log_line, log_type='info'):
+    if log_type == 'error':
+        file_pointer = sys.stderr
+    else:
+        file_pointer = sys.stdout
+    timestamp = datetime.now()
+    print(timestamp.strftime('%Y-%m-%d %H:%M:%S'), log_line, f'{script}: {function}', file=file_pointer, flush=True)
+    return time.time()
 
 
 def run_experiment(arg_tuple):
     pset, output_dir, output_file_name, time_offset, start_ind, config, proj_dir, cpu_count, self_predict = arg_tuple
 
-    # with open(calc_dir.parent/'proj_config.yaml', 'r') as file:
-    #     config = yaml.safe_load(file)
 
-    # proj_d = config['proj_d']
-    # data_csv = config.raw_data.data_csv
     time_var = config.raw_data.time_var
     pset['run_id'] = int(time.time() * 1000) + time_offset
     if 'id' in pset:
         pset['pset_id'] = pset['id']
 
-    run_config = SimpleNamespace(**pset)
-    print(run_config)
+    run_config = get_run_config(pset)
 
-    dir_path = output_dir #/ str(run_config.pset_id)
-    # try:
-    #     output_file_format = config.output.file_format
-    # except:
-    #     output_file_format = 'psetid_E_tau__surrvarsurrnum'
-    #
-    # output_file_name = output_file_format.replace('psetid', str(run_config.pset_id)).replace('E', 'E'+str(run_config.E)).replace('tau', 'tau'+str(run_config.tau)).replace('lag', 'lag'+str(run_config.lag)).replace('surrvar', str(run_config.surr_var)).replace('surrnum', str(run_config.surr_num))
-    df_csv_name = f'{output_file_name}.csv' if '.csv' not in output_file_name else output_file_name#f'{run_config.pset_id}_E{run_config.E}_tau{run_config.tau}__{run_config.surr_var}{run_config.surr_num}.csv'  # 'df_{}.csv'.format(run_config.run_id)
-    # print(df_csv_name, file=sys.stdout, flush=True)
-    df_path = dir_path / df_csv_name
-    print('running', datetime.now(), df_path, df_path.exists(), 'start_ind', start_ind, pset, 'how many cores:', os.cpu_count(), file=sys.stdout, flush=True)
+    df_csv_name = check_csv_ext(output_file_name)
+    df_path = output_dir / df_csv_name
+    start_time = print_log_line('run_edm_carc_pool2_config', 'run_experiment',
+                                     f'{df_path} exists: {df_path.exists()}, starting start_ind {start_ind}, pset_id {run_config.pset_id}, col_var_id {run_config.col_var_id}, target_var_id {run_config.target_var_id}, E {run_config.E}, tau {run_config.tau}, lag {run_config.lag}, knn {run_config.knn}, Tp {run_config.Tp}, sample {run_config.sample}, weighted {run_config.weighted}, train_ind_i {run_config.train_ind_i}, surr_var {run_config.surr_var}, surr_num {run_config.surr_num}', 'info')
 
-    start_time = time.time()
+    # start_time = time.time()
     libSizes = np.arange(run_config.knn + 1, config.ccm_config.max_libsize, config.ccm_config.libsize_step)
-
-    # data_col_var = config.get_dynamic_attr("{var}.data_var", run_config.col_var_id)
-    # data_col_var_alias = config.get_dynamic_attr("{var}.var", run_config.col_var_id)
-    #
-    # data_target_var = config.get_dynamic_attr("{var}.data_var", run_config.target_var_id)
-    # data_target_var_alias = config.get_dynamic_attr("{var}.var", run_config.target_var_id)
 
     # Calculate exclusion_radius dynamically based on tau and E
     exclusion_radius = np.abs(run_config.tau) * run_config.E  #calculate_exclusion_radius(config.tau, config.E)
     run_config.exclusion_radius = exclusion_radius
 
-    if run_config.Tp_flag != 'custom':
-        if run_config.Tp_flag == 'excl_radius':
-            run_config.Tp = exclusion_radius
-        if run_config.Tp_flag == 'excl_radius_div2':
-            run_config.Tp = int(exclusion_radius / 2)
-        elif run_config.Tp_flag == 'tau':
-            run_config.Tp = run_config.tau
-    if run_config.Tp_flag == 'pairs':
-        run_config['Tp'] = run_config.Tp_lag_total + run_config.lag
+    # if run_config.Tp_flag != 'custom':
+    #     if run_config.Tp_flag == 'excl_radius':
+    #         run_config.Tp = exclusion_radius
+    #     if run_config.Tp_flag == 'excl_radius_div2':
+    #         run_config.Tp = int(exclusion_radius / 2)
+    #     elif run_config.Tp_flag == 'tau':
+    #         run_config.Tp = run_config.tau
+    # if run_config.Tp_flag == 'pairs':
+    #     run_config['Tp'] = run_config.Tp_lag_total + run_config.lag
 
     # Load your data here
     data = pull_raw_data(config, proj_dir,[ run_config.col_var_id, run_config.target_var_id])
@@ -132,7 +131,7 @@ def run_experiment(arg_tuple):
     # note: at some point "embedded=False" will not always be correct
     # rever to run_config.sample
     # cpu_allocation = os.cpu_count() if os.cpu_count() is not None and os.cpu_count()<17  else 16
-    print('cpu_count', cpu_count, file=sys.stdout, flush=True)
+    # print('cpu_count', cpu_count, file=sys.stdout, flush=True)
     ccm_out = pe.CCM(dataFrame=shifted,
                      E=run_config.E, Tp=run_config.Tp, tau=-run_config.tau, exclusionRadius=run_config.exclusion_radius,
                      knn=run_config.knn, verbose=False,
@@ -149,7 +148,7 @@ def run_experiment(arg_tuple):
     ccm_out_df = po.add_meta_data(ccm_out, ccm_out_df, run_config.train_ind_i, train_ind_f, lag=run_config.lag)
     ccm_out_df['lag'] = run_config.lag
 
-    dir_path.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     ccm_out_df['run_id'] = run_config.run_id
     ccm_out_df['pset_id'] = run_config.pset_id
@@ -168,6 +167,7 @@ def write_to_file(ccm_out_df, df_path, overwrite=False):
     remove_cols = ['Tp_lag_total', 'sample', 'weighted', 'train_ind_0', 'run_id', 'ind_f', 'Tp_flag', 'train_len',
                    'train_ind_i']
     ccm_out_df = ccm_out_df[[col for col in ccm_out_df.columns if col not in remove_cols]].copy()
+    df_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         ccm_out_df_0 = pd.read_csv(df_path, index_col=0)
@@ -258,17 +258,13 @@ if __name__ == '__main__':
 
         arg_tuples = []
         for time_offset, pset_d in enumerate(parameter_ds):
-            # if 'col_var_id' not in pset:
-            #     pset['col_var_id'] = pset[f'{str.lower(config[col_var"])}_id']
-            # if 'target_var_id' not in pset:
-            #     pset['target_var_id'] = pset[f'{str.lower(config["target_var"])}_id']
             if 'pset_id' not in pset_d:
                 if 'id' in pset_d:
                     pset_d['pset_id'] = pset_d['id']
 
             calc_sub_location = set_grp_path(output_dir, pset_d, config=config)# /f'tp_{pset_d["Tp"]}'/f'{pset_d["col_var_id"]}_{pset_d["target_var_id"]}' / f'E{pset_d["E"]}_tau{pset_d["tau"]}'
-            calc_sub_location.mkdir(parents=True, exist_ok=True)
-            calc_dir_list = os.listdir(calc_sub_location)
+            # calc_sub_location.mkdir(parents=True, exist_ok=True)
+            # calc_dir_list = os.listdir(calc_sub_location)
 
             try:
                 file_name_template = config.output.file_format
@@ -325,11 +321,12 @@ if __name__ == '__main__':
             pset_d['col_var_id'] = pset_d[f'{config["col_var"]}_id']
         if 'target_var_id' not in pset_d:
             pset_d['target_var_id'] = pset_d[f'{config["target_var"]}_id']
+
         arg_tuples = []
         # for time_offset, pset in enumerate(parameter_ds):
         calc_sub_location = set_grp_path(output_dir, pset_d, config=config) #calc_location / f'{pset_d["col_var_id"]}_{pset_d["target_var_id"]}' / f'E{pset_d["E"]}_tau{pset_d["tau"]}'
-        calc_sub_location.mkdir(parents=True, exist_ok=True)
-        calc_dir_list = os.listdir(calc_sub_location)
+        # calc_sub_location.mkdir(parents=True, exist_ok=True)
+        # calc_dir_list = os.listdir(calc_sub_location)
 
         try:
             file_name_template = config.output.file_format
