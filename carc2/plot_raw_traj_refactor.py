@@ -377,7 +377,7 @@ def adjust_left_spine(ax):
 ### Plotting Functions
 # CCM output: library size (LibSize) vs. correlation (rho) plots
 def plot_primary(ax, data_d, palette, scatter=False, lines=False, pi=90, pi_shading=True,
-                 n_boot=1000, libsize_max=350, surr_lw=.75, real_lw=3):
+                 n_boot=1000, libsize_max=350, surr_lw=.75, real_lw=3, surr_kwargs={}):
     """Plots the primary line and optional scatter plot for real vs. surrogate data."""
     metric = 'rho'
     # if isinstance(data, tuple):
@@ -411,6 +411,7 @@ def plot_primary(ax, data_d, palette, scatter=False, lines=False, pi=90, pi_shad
                      estimator=None, alpha=.2, units='surr_num', lw=surr_lw)
         sns.lineplot(data=data[data['surr_var']=='neither'].rename(columns={metric: 'rho'}), x='LibSize', y='rho', hue='relation',
                      legend=False, n_boot=n_boot, ax=ax, palette=palette, lw=real_lw)
+
     if pi_shading is True:
         sns.lineplot(data=data.rename(columns={metric: 'rho'}), x='LibSize', y='rho', hue='relation',
                      legend=False, n_boot=n_boot, errorbar=("pi", pi), ax=ax, palette=palette)
@@ -419,6 +420,11 @@ def plot_primary(ax, data_d, palette, scatter=False, lines=False, pi=90, pi_shad
     #              legend=False, ax=ax, n_boot=n_boot, errorbar=("pi", pi), palette=palette) #n_boot=3000, errorbar=("ci", 95),
     #
     if lines is False:
+        # if 'surr_rel' in surr_kwargs.keys():
+        #     surr_data = data[data['relation'].isin(surr_kwargs['surr_rel'])].copy()
+        #     real_data = data[data['surr_var'] == 'neither'].copy()
+        #     data = pd.concat([real_data, surr_data]).copy()
+
         sns.lineplot(data=data.rename(columns={metric: 'rho'}), x='LibSize', y='rho', hue='relation',
                  legend=True,  n_boot=n_boot, ax=ax, palette=palette) #
     # sns.lineplot(data=data.rename(columns={metric: 'rho'}), x='LibSize', y='rho', hue='relation',
