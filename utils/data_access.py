@@ -412,7 +412,7 @@ def write_query_string(query_keys, grp_d):
 
     return query_string
 
-def choose_data_source(proj_dir, config, data_source, var_data_csv=None):
+def choose_data_source(proj_dir, config, data_source, var_data_csv=None, data_type='raw'):
     """
     Chooses the data source based on the specified data_source parameter.
     Args:
@@ -433,15 +433,33 @@ def choose_data_source(proj_dir, config, data_source, var_data_csv=None):
         remove_extra_index(var_data)
     """
 
-    try:
-        config_source = config.raw_data.name
-    except:
-        config_source = 'data'
+    if data_type == 'raw':
+        try:
+            config_source = config.raw_data.name
+        except:
+            config_source = 'data'
+        alternative_source = 'master_data'
+    elif data_type in ['surr', 'surrogate']:
+        try:
+            config_source = config.surrogate_data.name
+        except:
+            config_source = 'surrogates'
+        alternative_source = 'master_surrogates'
 
     data_path, var_data = None, None
-    if data_source in ['data', 'raw_data']:
+
+    if 'master' in data_source:
+        data_source2 = config_source
+        data_source1 = alternative_source
+        try:
+            data_path = proj_dir.parent / data_source1 / f'{var_data_csv}.csv'
+            var_data = pd.read_csv(data_path)
+        except:
+            data_path = proj_dir / data_source2 / f'{var_data_csv}.csv'
+            var_data = pd.read_csv(data_path)
+    else:
         data_source1 = config_source
-        data_source2 = 'master_data'
+        data_source2 = alternative_source
         try:
             data_path = proj_dir / data_source1 / f'{var_data_csv}.csv'
             var_data = pd.read_csv(data_path)
@@ -449,19 +467,8 @@ def choose_data_source(proj_dir, config, data_source, var_data_csv=None):
             data_path = proj_dir.parent / data_source2 / f'{var_data_csv}.csv'
             var_data = pd.read_csv(data_path)
 
-
-    elif data_source in ['master_data', 'master']:
-        data_source2 = config_source
-        data_source1 = 'master_data'
-        try:
-            data_path = proj_dir.parent / data_source1 / f'{var_data_csv}.csv'
-            var_data = pd.read_csv(data_path)
-        except:
-            data_path = proj_dir / data_source2 / f'{var_data_csv}.csv'
-            var_data = pd.read_csv(data_path)
-
     if var_data is None:
-        print(f'Error reading raw data for {var_data_csv} from {data_source1}, {data_source2}', file=sys.stderr, flush=True)
+        print(f'Error reading {data_type} data for {var_data_csv} from {data_source1}, {data_source2}', file=sys.stderr, flush=True)
         return None, None
 
     var_data = remove_extra_index(var_data)
