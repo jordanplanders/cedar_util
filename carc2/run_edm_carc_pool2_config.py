@@ -1,6 +1,6 @@
 import time
 from types import SimpleNamespace
-
+import copy
 import numpy as np
 import pandas as pd
 import pyEDM as pe
@@ -19,10 +19,6 @@ def get_run_config(pset):
     run_config = SimpleNamespace(**pset)
     return run_config
 
-def check_csv_ext(output_file_name):
-    if '.csv' not in output_file_name:
-        output_file_name = f'{output_file_name}.csv'
-    return output_file_name
 
 def print_log_line(script, function, log_line, log_type='info'):
     if log_type == 'error':
@@ -33,6 +29,19 @@ def print_log_line(script, function, log_line, log_type='info'):
     print(timestamp.strftime('%Y-%m-%d %H:%M:%S'), log_line, f'{script}: {function}', file=file_pointer, flush=True)
     return time.time()
 
+
+# def template_replace(template, d, return_replaced=True):
+#     replaced = []
+#     old_template = copy.copy(template)
+#     for key, value in d.items():
+#         template = template.replace(f'{{{key}}}', str(value))
+#         if template != old_template:
+#             replaced.append(key)
+#             old_template = copy.copy(template)
+#     if return_replaced is False:
+#         return template
+#
+#     return template, replaced
 
 def run_experiment(arg_tuple):
     pset, output_dir, output_file_name, time_offset, start_ind, config, proj_dir, cpu_count, self_predict = arg_tuple
@@ -83,7 +92,7 @@ def run_experiment(arg_tuple):
 
     if surr_var_id is not None:
         surr_file = config.get_dynamic_attr("{var}.surr_file_name", surr_var_id)
-        # print('surr', surr_file, file=sys.stdout, flush=True)
+        print('surr', surr_file, file=sys.stdout, flush=True)
         surr_file = surr_file[0] if isinstance(surr_file, list) else surr_file
 
         surr_data = pd.read_csv(proj_dir / 'surrogates' / surr_file, index_col=0)
@@ -179,7 +188,12 @@ def write_to_file(ccm_out_df, df_path, overwrite=False):
         pass
 
     ccm_out_df.to_csv(df_path)
-    print('!\twrote to file: ', df_path)
+    if os.path.exists(df_path):
+        print('!\twrote to file: ', df_path)
+    else:
+        print('x\tfailed to write to file: ', df_path, file=sys.stderr, flush=True)
+        print('x\tfailed to write to file: ', df_path, file=sys.stdout, flush=True)
+
 
 
 if __name__ == '__main__':
@@ -258,17 +272,23 @@ if __name__ == '__main__':
 
         arg_tuples = []
         for time_offset, pset_d in enumerate(parameter_ds):
+            print(pset_d, file=sys.stdout, flush=True)
+            pset_d= {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in pset_d.items()}
             if 'pset_id' not in pset_d:
                 if 'id' in pset_d:
                     pset_d['pset_id'] = pset_d['id']
 
+            print('before calc sub', pset_d, file=sys.stdout, flush=True)
             calc_sub_location = set_grp_path(output_dir, pset_d, config=config)# /f'tp_{pset_d["Tp"]}'/f'{pset_d["col_var_id"]}_{pset_d["target_var_id"]}' / f'E{pset_d["E"]}_tau{pset_d["tau"]}'
             # calc_sub_location.mkdir(parents=True, exist_ok=True)
             # calc_dir_list = os.listdir(calc_sub_location)
 
+            print('before try', pset_d, file=sys.stdout, flush=True)
             try:
-                file_name_template = config.output.file_format
-                file_name = f'{replace(file_name_template, pset_d)}.csv'
+                print('inside try', pset_d, file=sys.stdout, flush=True)
+                file_name_template = config.output.file_format_csv
+                file_name = template_replace(file_name_template, pset_d, return_replaced=False)# f'{replace(file_name_template, pset_d)}.csv'
+                print('file_name from template', file_name,pset_d, file=sys.stdout, flush=True)
             except:
                 file_name = f"{pset_d['pset_id']}_E{pset_d['E']}_tau{pset_d['tau']}__{pset_d['surr_var']}{pset_d['surr_num']}.csv"
 
@@ -329,10 +349,11 @@ if __name__ == '__main__':
         # calc_dir_list = os.listdir(calc_sub_location)
 
         try:
-            file_name_template = config.output.file_format
-            file_name = f'{replace(file_name_template, pset_d)}.csv'
+            file_name_template = config.output.file_format_csv
+            file_name = template_replace(file_name_template, pset_d, return_replaced=False)# f'{replace(file_name_template, pset_d)}.csv'
         except:
             file_name = f"{pset_d['pset_id']}_E{pset_d['E']}_tau{pset_d['tau']}__{pset_d['surr_var']}{pset_d['surr_num']}.csv"
+
         pset_exists, stem_exists = check_exists(file_name,
                                                 calc_sub_location)  # if file_name in calc_dir_list else (False, False)
         existence = pset_exists  # this is strong existence criteria... if want to check for stem existence, use stem_exists
