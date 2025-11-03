@@ -13,7 +13,7 @@ def set_calc_path(args, proj_dir, config, second_suffix=''):
         if Path('/Users/jlanders').exists() == True:
             calc_location = proj_dir / (config.local.calc_carc + f'{second_suffix}')  #'calc_local_tmp'
         else:
-            calc_location = proj_dir / (config.carc.calc_carc + f'{second_suffix}')
+            calc_location = proj_dir / (config.local.calc_carc + f'{second_suffix}')
 
     return calc_location
 
@@ -42,7 +42,19 @@ def replace(template, d):
     return template
 import types
 import collections.abc
+import copy
+def template_replace(template, d, return_replaced=True):
+    replaced = []
+    old_template = copy.copy(template)
+    for key, value in d.items():
+        template = template.replace(f'{{{key}}}', str(value))
+        if template != old_template:
+            replaced.append(key)
+            old_template = copy.copy(template)
+    if return_replaced is False:
+        return template
 
+    return template, replaced
 
 def correct_iterable(obj):
     if obj is None:
@@ -55,59 +67,50 @@ def correct_iterable(obj):
         else:
             return [obj]
 
-def set_grp_path(parent_path, d, config=None, source='csv', grp_level='grp_dir_structure', make_grp=True):
-    # if "lag" not in d:
-    #     d["lag"] = 0
-    # if isinstance(d["lag"], str):
-    #     if d["lag"].isdigit():
-    #         d["lag"] = int(d["lag"])
-    #     else:
-    #         d["lag"] = 0
+def check_csv_ext(output_file_name):
+    if '.csv' not in output_file_name:
+        output_file_name = f'{output_file_name}.csv'
+    return output_file_name
 
+def set_grp_path(parent_path, d, config=None, source='csv', grp_level='grp_dir_structure', make_grp=True):
+    # print('source', source, file=sys.stdout, flush=True)
     if 'tp' in d.keys():
         d['Tp'] = d['tp']
     # print('tried to set grp path?')
     # print('set_grp_path', source)#, file=sys.stdout, flush=True)
     tmp_d = d.copy()
     tmp_d= {k:v[0] if isinstance(v, list) and len(v)==1 else v for k,v in tmp_d.items()}
-    config_path = set_model_config_path(parent_path, d, config=config)
+    config_path = parent_path#set_model_config_path(parent_path, d, config=config)
 
     # print('set_grp_path d', d, source, file=sys.stdout, flush=True)
     if source == 'csv':
         if 'lag' in d and d['lag'] is not None:
-            grp_level = 'lag_dir_structure_csv'
+            grp_level = 'dir_structure_csv'
         else:
             grp_level = 'grp_dir_structure'
         # grp_level = 'dir_structure_csv'
     else:
-        grp_level = 'grp_dir_structure'
+        grp_level = 'dir_structure'
+
 
     # print('grp_level', grp_level)#, file=sys.stdout, flush=True)
 
     if config is not None:
         try:
             grp_path_template = config.get_dynamic_attr("output.{var}", grp_level) # config.output.grp_dir_structure
-            grp_path_template_filled = replace(grp_path_template,tmp_d)
+            grp_path_template_filled = template_replace(grp_path_template,tmp_d, return_replaced=False)
             # grp_path_template_filled = '/'.join([path_part for path_part in grp_path_template_filled.split('/') if '{' not in path_part])# grp_path_template.replace('{col_var_id}', d["col_var_id"]).replace('{target_var_id}', d["target_var_id"]).replace('{E}', str(d["E"])).replace('{tau}', str(d["tau"])).replace('{knn}', 'knn'+str(d["knn"])).replace('{Tp}', str(d["Tp"])).replace('{lag}', str(d.get("lag",0)))
             grp_path = config_path / grp_path_template_filled
+            # print('grp_path_template', grp_path_template, 'filled', grp_path_template_filled, '-> grp_path', grp_path, file=sys.stdout, flush=True)
             # if make_grp is True:
             #     grp_path.mkdir(exist_ok=True, parents=True)
         except:
             pass
     else:
-        grp_path = config_path/f'{d["col_var_id"]}_{d["target_var_id"]}' / f'E{d["E"]}_tau{d["tau"]}'
+        grp_path_template_filled = f'{d["col_var_id"]}_{d["target_var_id"]} / E{d["E"]}_tau{d["tau"]}'
+        grp_path = config_path / grp_path_template_filled
 
-    str_grp_path = str(grp_path)
-    # print('initial str_grp_path', str_grp_path)
-    for key in d.keys():
-        d[key] = correct_iterable(d[key])
-
-        if len(d[key]) == 1:
-            replace_val = str(d[key][0])
-            target_repl = '{' + key + '}'
-            # print('before', str_grp_path, 'replacing', target_repl, 'with', replace_val)
-            str_grp_path = str_grp_path.replace(target_repl, replace_val)
-    grp_path = Path(str_grp_path)
+    # print('set_grp_path d', grp_path, file=sys.stdout, flush=True)
 
     if make_grp is True:
         grp_path.mkdir(exist_ok=True, parents=True)
