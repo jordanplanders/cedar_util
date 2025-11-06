@@ -459,7 +459,7 @@ cython_debug/
 
 # Android studio 3.1+ serialized cache file
 
-/ccm_utils/*
+/archive/ccm_utils/*
 #!/ccm_utils/__init__.py
 #!/ccm_utils/process_output.py
 
