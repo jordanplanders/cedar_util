@@ -1,14 +1,11 @@
 import pandas as pd
-from pathlib import Path
 from multiprocessing import Pool
-import os, sys
 
-from ccm_utils.ebm_ccm import output_dir
 from utils.arg_parser import get_parser
 from utils.config_parser import load_config
 from utils.data_access import collect_raw_output, get_weighted_flag, set_df_weighted, write_query_string
 from utils.location_helpers import *
-from utils.run_tools import decide_file_handling
+
 
 def streamline_cause(label, split_word='causes'):
     label_parts = label.split(' {} '.format(split_word))

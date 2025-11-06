@@ -1,6 +1,5 @@
 import time
 from types import SimpleNamespace
-import copy
 import numpy as np
 import pandas as pd
 import pyEDM as pe
@@ -11,9 +10,10 @@ from utils.config_parser import load_config
 from utils.location_helpers import *
 from utils.data_access import pull_raw_data
 from utils.location_helpers import check_exists
-from utils.run_tools import decide_file_handling
+from archive.utils import decide_file_handling
 
-from ccm_utils import process_output as po
+from utils import process_output as po
+
 
 def get_run_config(pset):
     run_config = SimpleNamespace(**pset)

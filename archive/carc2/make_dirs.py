@@ -43,6 +43,6 @@ if __name__ == '__main__':
     (proj_dir/'slurm').mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
     (proj_dir/'notebooks').mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
 
-    (calc_location/carc_config_d.dirs.calc_convergence_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+    # (calc_location/carc_config_d.dirs.calc_convergence_dir).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
     (calc_location/carc_config_d.dirs.output).mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
 
