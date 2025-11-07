@@ -40,6 +40,7 @@ def set_output_path(args, calc_location, config):
     if output_dir is None:
         try:
             output_dir = calc_location / config.hpc.output_dir
+
         except AttributeError:
             print('AttributeError: config.hpc.output_dir not found', file=sys.stdout, flush=True)
 
@@ -64,38 +65,47 @@ def template_replace(template, d, return_replaced=True):
 
     return template, replaced
 
-def set_grp_path(parent_path, d, config=None, source='csv', grp_level='grp_dir_structure', make_grp=True):
+
+def set_grp_path(output_path, d, config=None, source='csv', grp_level='grp_dir_structure', make_grp=True):
     if 'tp' in d.keys():
         d['Tp'] = d['tp']
     tmp_d = d.copy()
     tmp_d= {k:v[0] if isinstance(v, list) and len(v)==1 else v for k,v in tmp_d.items()}
-    config_path = parent_path#set_model_config_path(parent_path, d, config=config)
-
-    if source == 'csv':
-        if 'lag' in d and d['lag'] is not None:
-            grp_level = 'dir_structure_csv'
-        else:
-            grp_level = 'grp_dir_structure'
-        # grp_level = 'dir_structure_csv'
-    else:
-        grp_level = 'dir_structure'
+    # config_path = parent_path#set_model_config_path(parent_path, d, config=config)
 
     if config is not None:
-        try:
-            grp_path_template = config.get_dynamic_attr("output.{var}", grp_level) # config.output.grp_dir_structure
-            grp_path_template_filled = template_replace(grp_path_template,tmp_d, return_replaced=False)
-            grp_path = config_path / grp_path_template_filled
+        output_config = config.get_dynamic_attr("output.{var}", source)
+        grp_path_template = output_config.dir_structure
+        grp_path_template_filled = template_replace(grp_path_template, tmp_d, return_replaced=False)
+        grp_path = output_path / grp_path_template_filled
+        # print('grp_path_template_filled', grp_path, file=sys.stdout, flush=True)
 
-        except:
-            pass
+    # if source == 'csv':
+    #     if 'lag' in d and d['lag'] is not None:
+    #         grp_level = 'dir_structure_csv'
+    #     else:
+    #         grp_level = 'grp_dir_structure'
+    #     # grp_level = 'dir_structure_csv'
+    # else:
+    #     grp_level = 'dir_structure'
+    #
+    # if config is not None:
+    #     try:
+    #         grp_path_template = config.get_dynamic_attr("output.{var}", grp_level) # config.output.grp_dir_structure
+    #         grp_path_template_filled = template_replace(grp_path_template,tmp_d, return_replaced=False)
+    #         grp_path = output_path / grp_path_template_filled
+    #
+    #     except:
+    #         pass
     else:
         grp_path_template_filled = f'{d["col_var_id"]}_{d["target_var_id"]} / E{d["E"]}_tau{d["tau"]}'
-        grp_path = config_path / grp_path_template_filled
+        grp_path = output_path / grp_path_template_filled
 
 
     if make_grp is True:
         grp_path.mkdir(exist_ok=True, parents=True)
 
+    # print('grp_path', grp_path, file=sys.stdout, flush=True)
     return grp_path
 
 
