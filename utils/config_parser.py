@@ -45,9 +45,20 @@ class ProjectConfig:
             raise TypeError(f"{list_name} is not a list.")
 
     # Recursive function to convert the class back to a dictionary (for saving to YAML)
+    # def to_dict(self):
+    #     result = {}
+    #     for key, value in self.__dict__.items():
+    #         if isinstance(value, ProjectConfig):
+    #             result[key] = value.to_dict()
+    #         else:
+    #             result[key] = value
+    #     return result
+
     def to_dict(self):
         result = {}
         for key, value in self.__dict__.items():
+            if key in {"file_path", "_data_vars_loaded"}:
+                continue
             if isinstance(value, ProjectConfig):
                 result[key] = value.to_dict()
             else:
@@ -88,10 +99,52 @@ class ProjectConfig:
         return obj
 
 # Function to load the YAML file and instantiate the class
-def load_config(yaml_file):
-    with open(yaml_file, 'r') as file:
-        config_data = yaml.safe_load(file)
-    return ProjectConfig(config_data, file_path=yaml_file)
+# def load_config(yaml_file):
+#     with open(yaml_file, 'r') as file:
+#         config_data = yaml.safe_load(file)
+#     return ProjectConfig(config_data, file_path=yaml_file)
+
+def _load_yaml(path: Path) -> dict:
+    with open(path, "r") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Top-level YAML at {path} must be a mapping.")
+    return data
+
+def _find_var_file(var_id: str, base_dir: Path) -> Path:
+    for ext in (".yaml", ".yml"):
+        p = base_dir / f"{var_id}{ext}"
+        if p.exists():
+            return p
+    raise FileNotFoundError(f"Variable file not found for '{var_id}' in {base_dir}.")
+
+def load_config(yaml_file, var_dir_name: str = "data_var_configs"):
+    yaml_path = Path(yaml_file).resolve()
+    cfg = _load_yaml(yaml_path)
+
+    dv = cfg.pop("data_vars", None)
+    if dv:
+        var_ids = list(dv.values()) if isinstance(dv, dict) else list(dv)
+        var_dir = (yaml_path.parent / var_dir_name).resolve()
+
+        for var_id in var_ids:
+            var_path = _find_var_file(var_id, var_dir)
+            var_dict = _load_yaml(var_path)
+
+            # NEW: unwrap if the file is {var_id: {...}} or {alias: {...}} with 1 key
+            if len(var_dict) == 1:
+                [(only_key, only_val)] = var_dict.items()
+                if isinstance(only_val, dict) and (only_key == var_id or True):
+                    # Prefer exact match; otherwise still unwrap the single mapping
+                    var_dict = only_val
+
+            if var_id in cfg:
+                raise ValueError(f"Top-level key '{var_id}' already exists in main config.")
+            cfg[var_id] = var_dict
+
+        cfg["_data_vars_loaded"] = var_ids
+
+    return ProjectConfig(cfg, file_path=str(yaml_path))
 
 
 def add_var(config, var_type, var_id, var_meta):
