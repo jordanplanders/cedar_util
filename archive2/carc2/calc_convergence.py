@@ -18,7 +18,7 @@ from utils.location_helpers import *
 from utils.config_parser import load_config
 from utils.data_access import rel_reformat, relationship_filter, get_real_output, get_weighted_flag
 # from utils.data_processing import relationship_filter, rel_reformat
-from archive.utils.run_tools import decide_file_handling
+from archive2.utils.run_tools import decide_file_handling
 
 import warnings
 warnings.simplefilter("ignore", category=FutureWarning)

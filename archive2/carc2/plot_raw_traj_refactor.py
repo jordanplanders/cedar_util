@@ -15,7 +15,7 @@ from utils.location_helpers import construct_convergence_name
 from utils.config_parser import load_config
 from utils.data_access import get_real_output, get_weighted_flag, relationship_filter, rel_reformat, get_surrogate_output
 from utils.location_helpers import *
-from archive.utils.run_tools import decide_file_handling
+from archive2.utils.run_tools import decide_file_handling
 
 
 # from utils.data_processing import relationship_filter, rel_reformat
