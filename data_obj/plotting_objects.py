@@ -591,8 +591,10 @@ class BasePlot:
         if self.ax is None:
             self.ax = plt.subplots(figsize=(8, 6))[1]
 
-    def pull_df(self, output):
-        return output.select([self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num']).to_pandas()
+    def pull_df(self, output, columns= None):
+        return output.select(columns).to_pandas()
+
+
 
     def handle_legend(self, collect_legend=True, legend=False, element_type='scatter'):
         if collect_legend is True:
@@ -682,7 +684,7 @@ class BasePlot:
 
 
 class LibSizeRhoPlot(BasePlot):
-    def __init__(self, y_var='rho', x_var='LibSize', ax=None, palette=None, plot_config=None, plot_grp=None):
+    def __init__(self, y_var='rho', x_var='LibSize', units=None, lag=0, ax=None, palette=None, plot_config=None, plot_grp=None):
         # 1) Always run base init with a minimal group dict
         if isinstance(plot_config, BasePlot):
             # copy *data* attributes, not methods
@@ -697,12 +699,60 @@ class LibSizeRhoPlot(BasePlot):
             }
             super().__init__(base_grp)
 
+        self.lag = lag
+        self.units=units
+
     def add_line(self, df, hue='relation', units=None,  collect_legend=True, legend=False):
         self.ax = self._line(df, hue=hue, units=units, collect_legend=collect_legend, legend=legend)
         self.update_y_extrema(df)
         self.handle_legend(collect_legend=collect_legend, legend=legend, element_type='line')
         return self.ax
 
+    def make_classic_plot(self, outputgrp, stats_only=True, scatter=True, boxplot=False, surr_lines=False):
+
+        if outputgrp.libsize_aggregated is None:
+            print('calculating libsize rho from scratch')
+            outputgrp.aggregate_libsize()
+        self.palette = check_palette_syntax(self.palette, outputgrp.libsize_aggregated.full)
+
+        outputgrp.libsize_aggregated.get_table()
+
+        # if stats_only is False and outputgrp.delta_rho_full is None:
+        #     outputgrp.calc_delta_rho(stats_out=False, full_out=True)
+        #     self.palette = check_palette_syntax(self.palette, outputgrp.delta_rho_full.full)
+        # elif stats_only is False:
+        #     outputgrp.delta_rho_full.get_table()
+
+        if 'relation_0' not in outputgrp.libsize_aggregated._full.schema.names:
+            outputgrp.libsize_aggregated._full = add_relation_s_inferred(outputgrp.libsize_aggregated._full, relation_col='relation')
+
+        real_lag_df = self.pull_df(outputgrp.libsize_aggregated.real, columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau'])
+        real_lag_df = real_lag_df[real_lag_df['lag'] == self.lag]
+        self.add_line(real_lag_df, units=None)
+
+        surr_lag_df = self.pull_df(outputgrp.libsize_aggregated.surrogate, columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau'])
+        self.add_line(surr_lag_df, units=self.units)
+
+        # self.calc_top_vals(outputgrp)
+
+        # try:
+        #     if scatter is True:
+        #         if stats_only is False and outputgrp.delta_rho_full is not None and len(outputgrp.delta_rho_full.surrogate) > 0:
+        #             self.add_scatter(self.pull_df(outputgrp.delta_rho_full.surrogate))
+        #         else:
+        #             self.add_scatter(self.pull_df(outputgrp.delta_rho_stats.surrogate))
+        #     if boxplot is True:
+        #         if stats_only is False and outputgrp.delta_rho_full is not None and len(outputgrp.delta_rho_full.surrogate) > 0:
+        #             self.add_boxplot(self.pull_df(outputgrp.delta_rho_full.surrogate))
+        #         else:
+        #             self.add_boxplot(self.pull_df(outputgrp.delta_rho_stats.surrogate))
+        #
+        #
+        #             # print('made scatter plot' ,type(self.ax))
+        # except Exception as e:
+        #     print('no surrogate full data for scatter', e)
+
+        outputgrp.clear_tables()
 
 class LagPlot(BasePlot):
     """Class to create lag plots with optional scatter and highlighted points.
@@ -843,7 +893,7 @@ class LagPlot(BasePlot):
         if 'relation_0' not in outputgrp.delta_rho_stats._full.schema.names:
             outputgrp.delta_rho_stats._full = add_relation_s_inferred(outputgrp.delta_rho_stats._full, relation_col='relation')
 
-        real_lag_df = self.pull_df(outputgrp.delta_rho_stats.real)
+        real_lag_df = self.pull_df(outputgrp.delta_rho_stats.real, columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num'])
         self.add_line(real_lag_df, units=None)
 
         # self.calc_top_vals(outputgrp)
@@ -852,14 +902,14 @@ class LagPlot(BasePlot):
         try:
             if scatter is True:
                 if stats_only is False and outputgrp.delta_rho_full is not None and len(outputgrp.delta_rho_full.surrogate) > 0:
-                    self.add_scatter(self.pull_df(outputgrp.delta_rho_full.surrogate))
+                    self.add_scatter(self.pull_df(outputgrp.delta_rho_full.surrogate, columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num']))
                 else:
-                    self.add_scatter(self.pull_df(outputgrp.delta_rho_stats.surrogate))
+                    self.add_scatter(self.pull_df(outputgrp.delta_rho_stats.surrogate, columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num']))
             if boxplot is True:
                 if stats_only is False and outputgrp.delta_rho_full is not None and len(outputgrp.delta_rho_full.surrogate) > 0:
-                    self.add_boxplot(self.pull_df(outputgrp.delta_rho_full.surrogate))
+                    self.add_boxplot(self.pull_df(outputgrp.delta_rho_full.surrogate, columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num']))
                 else:
-                    self.add_boxplot(self.pull_df(outputgrp.delta_rho_stats.surrogate))
+                    self.add_boxplot(self.pull_df(outputgrp.delta_rho_stats.surrogate, columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num']))
 
 
                     # print('made scatter plot' ,type(self.ax))
