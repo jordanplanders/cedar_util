@@ -136,69 +136,6 @@ class DataVarConfig:
                 if getattr(self, key) is None:
                     setattr(self, key, var_info[key])
 
-    # def load_from_var_yaml(self, var_yaml, proj_dir):
-    #     print('load_from_var_yaml function is a stub - needs to be implemented')
-    #     pass
-    #
-    # # TODO fix pointers for surrogates
-    # def load_from_config(self, config, proj_dir):
-    #
-    #     var_id = self.var_id
-    #     var_info = config.get_dynamic_attr("{var}", self.var_id)
-    #     var_info = var_info.to_dict()
-    #
-    #     real_ts_d = var_info.pop('real_ts', None)
-    #     surr_ts_d = var_info.pop('surrogate_ts', None)
-    #
-    #     if 'raw_data_var' not in var_info.keys():
-    #         if 'data_var' in var_info.keys():
-    #             data_var = var_info.pop('data_var', None)
-    #             var_info['raw_data_var'] = data_var
-    #
-    #     if 'raw_data_csv' not in var_info.keys():
-    #         if 'data_csv' in var_info.keys():
-    #             data_csv = var_info.pop('data_csv', None)
-    #             var_info['raw_data_csv'] = data_csv
-    #
-    #     if 'raw_time_var' not in var_info.keys():
-    #         time_var = var_info.pop('raw_time_var', None)
-    #         if 'time_var' in var_info.keys():
-    #             time_var = var_info.pop('time_var', None)
-    #         else:
-    #             time_var = 'time'
-    #         var_info['raw_time_var'] = time_var
-    #
-    #     if 'surr_time_var' not in var_info.keys():
-    #         var_info['surr_time_var'] = 'date'
-    #
-    #     if 'surr_var' not in var_info.keys() or var_info['surr_var'] is None:
-    #         var_info['surr_var'] = var_info.get('var', None)
-    #
-    #     try:
-    #         surr_csvs = config.get_dynamic_attr("{var}.surr_file_name", self.var_id)
-    #     except:
-    #         surr_csvs = None
-    #
-    #     if surr_csvs is not None:
-    #         surr_csvs = correct_iterable(surr_csvs)
-    #         if len(surr_csvs) == 1:
-    #             var_info['surr_csv_stem'] = surr_csvs[0].replace('.csv', '').replace('.txt', '')
-    #         else:
-    #             print(f'Multiple surrogate csvs found for {self.var_id}: {surr_csvs}')
-    #
-    #     var_info['surr_prefix'] = var_info.get('surr_prefix', var_info.get('surr_var', None))
-    #     for key in var_info.keys():
-    #         if hasattr(self, key):
-    #             setattr(self, key, var_info[key])
-    #
-    #
-    #     self.raw_data_dir_path = self.set_data_source(config, data_source='data', data_type='raw')
-    #     self.get_color(config)
-    #
-    #     self.set_surr_csv_name()
-    #     self.surr_data_dir_path = self.set_data_source(config, data_source='data', data_type='surr')
-    #     self.set_real_data_col()
-
     def set_surr_csv_name(self):
         if len(self.suffix) > 0:
             self.surr_ts_csv = '__'.join([self.surr_csv_stem, self.suffix]).strip(
@@ -208,14 +145,6 @@ class DataVarConfig:
 
     def set_real_csv_name(self):
         self.real_ts_csv = self.real_csv_stem
-
-
-    # def set_real_data_col(self):
-    #     if len(self.suffix) > 0:
-    #         self.real_ts_col = '__'.join([self.real_ts_var, self.suffix]).strip(
-    #             '__') if self.real_ts_var is not None else None
-    #     else:
-    #         self.real_ts_col = self.real_ts_var
 
     def set_data_source(self, config, data_source='data', var_data_csv=None, data_type='real'):
         if var_data_csv is None:
@@ -265,14 +194,6 @@ class VarObject(DataVarConfig):
                                  label=self.var_name)
         return source_ps
 
-    #
-    # def set_real_data_col(self):
-    #     if len(self.suffix) > 0:
-    #         self.real_ts_col = '__'.join([self.real_ts_var, self.suffix]).strip(
-    #             '__') if self.real_ts_var is not None else None
-    #     else:
-    #         self.real_ts_col = self.real_ts_var
-    #
 
     def set_col_name(self):
         if self.ts_type == 'real':
