@@ -15,22 +15,6 @@ import pandas as pd
 from utils.config_parser import load_config
 from utils.location_helpers import *
 
-# PROJECT=eevw
-# PARAMS=real
-
-# python make_params.py --project $PROJECT --parameters $PARAMS --inds 1 25 --vars erb wu surrogate temp tsi neither --flags Tp_tau2 Tp_tau3
-# makes parameters for the specified project,
-# written to the specified parameter file,
-# with surrogates numbered 1 to 25,
-# using specified variable_ids (default to all combinations)
-# and surrogates for temp and tsi (default to neither),
-# and additional flags Tp_tau2 and Tp_tau3
-
-
-#python3 carc2/make_params.py --project $PROJECT --parameters $PARAMS --vars surrogate neither
-#python3 carc2/make_params.py --project $PROJECT --parameters $PARAMS --inds 1 10 --vars surrogate temp tsi
-#echo "Params created"
-
 
 
 # Define a dictionary of parameters to be used for generating combinations later
@@ -91,7 +75,7 @@ def process_group(arg_tuple, write_mode='a'):
         arg_tuple (tuple): A tuple containing various arguments needed for processing.
         write_mode (str): The mode to open the CSV file ('a' for append, 'w' for write).
 
-    Can be called at the command line, but most often called from a notebook
+
     '''
     (col_var_id, col_var_alias, target_var_id, target_var_alias,
      surrogate_vars,surrogate_range,
@@ -193,120 +177,120 @@ def tidy_up(param_csv_paths, keep='first'):
 
         param_df.to_csv(param_csv_path, index=False)
 
-if __name__ == '__main__':
-    # Create the parser object from the argument parser file
-    parser = get_parser()
-    args = parser.parse_args()  # Parse the command-line arguments
-
-    # Handle the project name argument, which is required (-j / --project)
-    if args.project is not None:
-        proj_name = args.project  # Store the project name
-    else:
-        print('Project name is required', file=sys.stdout, flush=True)
-        sys.exit(0)
-
-    proj_dir = set_proj_dir(proj_name, Path(os.getcwd()))
-
-    # Load the project configuration file specified by the --config flag (if provided)
-    gen_config = 'proj_config'
-    if args.config is not None:
-        gen_config = args.config
-
-    # with open(proj_dir / f'{gen_config}.yaml', 'r') as file:
-    #     config = yaml.safe_load(file)
-    config = load_config(proj_dir / 'proj_config.yaml')
-
-    # Handle the parameter file argument, which is optional (-p / --parameters)
-    if args.parameters is not None:
-        parameter_flag = args.parameters  # Store the parameter file name
-    else:
-        print('Parameter file is preferred', file=sys.stdout, flush=True)
-        parameter_flag = 'params'
-        # sys.exit(0)
-
-    parameters_dir = proj_dir / 'parameters'
-    # if
-    # (proj_dir / 'parameters').mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
-
-    # Load the Python file as a module
-    # print(config.parameters)
-    spec = importlib.util.spec_from_file_location("parameters", parameters_dir / f'{config.parameters.spec_d}.py')
-    params_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(params_module)
-
-    # Now you can access the parameters dictionary
-    parameters_d = params_module.parameters_d
-
-    # Handle the number of surrogates specified by the --inds flag
-    surrogate_range = []
-    if args.inds is not None:
-        surrogate_range = args.inds
-
-    # Handle any additional flags provided by the --flags argument
-    param_flags = []
-    if args.flags is not None:
-        param_flags = args.flags
-
-    # Create the path to the output CSV file where parameter combinations will be stored
-    # param_csv_path = proj_dir / 'parameters' / f'{parameter_flag}.csv'
-
-    # Prepare variable ID tuples for processing
-    var_id_tuples = []
-    surrogate_vars = []
-    surrogate_instructions_ind = None
-
-    # If variables are provided using --vars, process them
-    if args.vars is not None:
-        surrogate_instructions_ind = [ik for ik, _ in enumerate(args.vars) if _ == 'surrogate'][0]
-        surrogate_vars = []
-        if surrogate_instructions_ind<len(args.vars)-1:
-            surrogate_instructions = args.vars[surrogate_instructions_ind + 1:]
-            surrogate_vars += [var for var in surrogate_instructions if type(var) == str]
-        if 'all' in args.vars:
-            # print([config.get_dynamic_attr('vars', key) for key in dir(config.vars)])
-            surrogate_vars += [config.vars.col, config.vars.target]
-        surrogate_vars = [var for var in list(set(surrogate_vars)) if var != 'all']
-
-    specified_vars = False
-    if (args.vars is not None):
-        if (args.vars[0] != 'surrogate'):
-            specified_vars = True
-
-    param_csv_paths = []
-    if specified_vars ==True:
-        col_var_ids = []
-        target_var_ids= []
-
-        for var in args.vars:
-            if var in config.col_var_ids:
-                col_var_ids.append(var)
-            elif var in config.target_var_ids:
-                target_var_ids.append(var)
-
-        if len(col_var_ids) == 0:
-            col_var_ids = config.col.ids
-
-        if len(target_var_ids) == 0:
-            target_var_ids = config.target.ids
-    else:
-        col_var_ids = config.col.ids
-        target_var_ids = config.target.ids
-
-
-    for col_var_id in col_var_ids:
-        for target_var_id in target_var_ids:
-            col_var_alias = config.col.var
-            target_var_alias = config.target.var
-            param_csv_path = proj_dir / 'parameters' / f'params_bycol_{col_var_id}.csv'
-            param_csv_paths.append(param_csv_path)
-
-            var_id_tuples.append((col_var_id, col_var_alias, target_var_id, target_var_alias,
-                                  surrogate_vars,surrogate_range,
-                                  param_flags, param_csv_path, parameters_d))
-
-    # Process each group of variables and parameters
-    for var_id_tuple in var_id_tuples:
-        process_group(var_id_tuple)
-
-    tidy_up(param_csv_paths)
+# if __name__ == '__main__':
+#     # Create the parser object from the argument parser file
+#     parser = get_parser()
+#     args = parser.parse_args()  # Parse the command-line arguments
+#
+#     # Handle the project name argument, which is required (-j / --project)
+#     if args.project is not None:
+#         proj_name = args.project  # Store the project name
+#     else:
+#         print('Project name is required', file=sys.stdout, flush=True)
+#         sys.exit(0)
+#
+#     proj_dir = set_proj_dir(proj_name, Path(os.getcwd()))
+#
+#     # Load the project configuration file specified by the --config flag (if provided)
+#     gen_config = 'proj_config'
+#     if args.config is not None:
+#         gen_config = args.config
+#
+#     # with open(proj_dir / f'{gen_config}.yaml', 'r') as file:
+#     #     config = yaml.safe_load(file)
+#     config = load_config(proj_dir / 'proj_config.yaml')
+#
+#     # Handle the parameter file argument, which is optional (-p / --parameters)
+#     if args.parameters is not None:
+#         parameter_flag = args.parameters  # Store the parameter file name
+#     else:
+#         print('Parameter file is preferred', file=sys.stdout, flush=True)
+#         parameter_flag = 'params'
+#         # sys.exit(0)
+#
+#     parameters_dir = proj_dir / 'parameters'
+#     # if
+#     # (proj_dir / 'parameters').mkdir(parents=True, exist_ok=True)  # Create the parameters directory if it does not exist
+#
+#     # Load the Python file as a module
+#     # print(config.parameters)
+#     spec = importlib.util.spec_from_file_location("parameters", parameters_dir / f'{config.parameters.spec_d}.py')
+#     params_module = importlib.util.module_from_spec(spec)
+#     spec.loader.exec_module(params_module)
+#
+#     # Now you can access the parameters dictionary
+#     parameters_d = params_module.parameters_d
+#
+#     # Handle the number of surrogates specified by the --inds flag
+#     surrogate_range = []
+#     if args.inds is not None:
+#         surrogate_range = args.inds
+#
+#     # Handle any additional flags provided by the --flags argument
+#     param_flags = []
+#     if args.flags is not None:
+#         param_flags = args.flags
+#
+#     # Create the path to the output CSV file where parameter combinations will be stored
+#     # param_csv_path = proj_dir / 'parameters' / f'{parameter_flag}.csv'
+#
+#     # Prepare variable ID tuples for processing
+#     var_id_tuples = []
+#     surrogate_vars = []
+#     surrogate_instructions_ind = None
+#
+#     # If variables are provided using --vars, process them
+#     if args.vars is not None:
+#         surrogate_instructions_ind = [ik for ik, _ in enumerate(args.vars) if _ == 'surrogate'][0]
+#         surrogate_vars = []
+#         if surrogate_instructions_ind<len(args.vars)-1:
+#             surrogate_instructions = args.vars[surrogate_instructions_ind + 1:]
+#             surrogate_vars += [var for var in surrogate_instructions if type(var) == str]
+#         if 'all' in args.vars:
+#             # print([config.get_dynamic_attr('vars', key) for key in dir(config.vars)])
+#             surrogate_vars += [config.vars.col, config.vars.target]
+#         surrogate_vars = [var for var in list(set(surrogate_vars)) if var != 'all']
+#
+#     specified_vars = False
+#     if (args.vars is not None):
+#         if (args.vars[0] != 'surrogate'):
+#             specified_vars = True
+#
+#     param_csv_paths = []
+#     if specified_vars ==True:
+#         col_var_ids = []
+#         target_var_ids= []
+#
+#         for var in args.vars:
+#             if var in config.col_var_ids:
+#                 col_var_ids.append(var)
+#             elif var in config.target_var_ids:
+#                 target_var_ids.append(var)
+#
+#         if len(col_var_ids) == 0:
+#             col_var_ids = config.col.ids
+#
+#         if len(target_var_ids) == 0:
+#             target_var_ids = config.target.ids
+#     else:
+#         col_var_ids = config.col.ids
+#         target_var_ids = config.target.ids
+#
+#
+#     for col_var_id in col_var_ids:
+#         for target_var_id in target_var_ids:
+#             col_var_alias = config.col.var
+#             target_var_alias = config.target.var
+#             param_csv_path = proj_dir / 'parameters' / f'params_bycol_{col_var_id}.csv'
+#             param_csv_paths.append(param_csv_path)
+#
+#             var_id_tuples.append((col_var_id, col_var_alias, target_var_id, target_var_alias,
+#                                   surrogate_vars,surrogate_range,
+#                                   param_flags, param_csv_path, parameters_d))
+#
+#     # Process each group of variables and parameters
+#     for var_id_tuple in var_id_tuples:
+#         process_group(var_id_tuple)
+#
+#     tidy_up(param_csv_paths)
 
