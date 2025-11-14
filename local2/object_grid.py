@@ -17,7 +17,7 @@ from data_obj.plotting_objects import *
 
 
 def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, existing_output=None, calc_delta_rho_table=True,
-                   aggregate_libsize_table=True):
+                   aggregate_libsize_table=True, calc_delta_rho_full=True):
     '''
     Process a single (E, tau) configuration and return a GridCell object containing the results.
     Parameters:
@@ -61,9 +61,14 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
         print(f'\t1 processing file {ij + 1}/{len(test_grp.file_list)}: {name}', file=sys.stdout, flush=True)
         output_col = groupconfig_file.pull_output(to_table=False)
 
+        full_out = False
+        stats_out = True
+        if calc_delta_rho_full is True:
+            full_out = True
         if calc_delta_rho_table is True:
-            output_col = output_col.calc_delta_rho()
-
+            stats_out = True
+        if (full_out is True) or (stats_out is True):
+            output_col = output_col.calc_delta_rho(full_out=full_out, stats_out=stats_out)
 
         if aggregate_libsize_table is True:
             output_col = output_col.aggregate_libsize()
@@ -83,6 +88,10 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
         if delta_rho_path is not None:
             new_output_col.delta_rho_stats.path = delta_rho_path
 
+    if calc_delta_rho_full is True:
+        delta_rho_path_full = existing_output.delta_rho_full.path if existing_output is not None else None
+        if delta_rho_path is not None:
+            new_output_col.delta_rho_full.path = delta_rho_path_full
 
     if new_output_col.libsize_aggregated is None:
         if existing_output is not None:
@@ -94,12 +103,20 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
             new_output_col.delta_rho_stats = existing_output.delta_rho_stats
             new_output_col.delta_rho_stats.get_table()
 
+    if new_output_col.delta_rho_full is None:
+        if existing_output is not None:
+            new_output_col.delta_rho_full = existing_output.delta_rho_full
+            new_output_col.delta_rho_full.get_table()
+
     try:
         gb = new_output_col.libsize_aggregated.surrogate.group_by(["surr_var"]).aggregate([("surr_num", "count_distinct")])
         df = gb.to_pandas()
 
         new_output_col.delta_rho_stats.write_table()
         print('\twriting delta rho stats table', file=sys.stdout, flush=True)
+
+        new_output_col.delta_rho_full.write_table()
+        print('\twriting delta rho full table', file=sys.stdout, flush=True)
 
         new_output_col.libsize_aggregated.write_table()
         print('\twriting libsize aggregated table', file=sys.stdout, flush=True)
@@ -167,6 +184,8 @@ if __name__ == "__main__":
             calc_delta_rho_table = True
         if 'aggregate_libsize' in args.flags:
             aggregate_libsize_table = True
+        if 'calc_delta_rho_full' in args.flags:
+            calc_delta_rho_table_full = True
 
     calc_location = set_calc_path(None, proj_dir, config, '')
     print(f'Calculation location: {calc_location}', file=sys.stdout, flush=True)
@@ -199,10 +218,10 @@ if __name__ == "__main__":
         object_grid = {}
 
     # Process the (E, tau) configuration if not already processed
-    if (E, tau) not in object_grid.keys():
+    if ((E, tau) not in object_grid.keys()) or (object_grid[(E, tau)] is None):
         print('regardless of flags, going the dual calculations', file=sys.stdout, flush=True)
         object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config, calc_delta_rho_table=True,
-                                               aggregate_libsize_table=True)
+                                               aggregate_libsize_table=True, calc_delta_rho_full=True)
 
         joblib_cloud_atomic_dump(object_grid, tmp_dir / obj_grid_file_name, compress=3,
                                  protocol=5)
@@ -213,19 +232,24 @@ if __name__ == "__main__":
         if object_grid[(E, tau)].output is None:
             calc_delta_rho_table = True
             aggregate_libsize_table = True
+            calc_delta_rho_table_full = True
         else:
-            if object_grid[(E, tau)].output.delta_rho_stats.path is None:
+            if (object_grid[(E, tau)].output.delta_rho_stats is None) or (object_grid[(E, tau)].output.delta_rho_stats.path is None):
                 calc_delta_rho_table = True
-            if object_grid[(E, tau)].output.libsize_aggregated.path is None:
+            if (object_grid[(E, tau)].output.delta_rho_full is None) or (object_grid[(E, tau)].output.delta_rho_full.path is None):
+                calc_delta_rho_table_full = True
+                calc_delta_rho_table = True
+            if (object_grid[(E, tau)].output.libsize_aggregated is None) or (object_grid[(E, tau)].output.libsize_aggregated.path is None):
                 aggregate_libsize_table = True
 
-        if (calc_delta_rho_table is True) or (aggregate_libsize_table is True):
+        if (calc_delta_rho_table is True) or (aggregate_libsize_table is True) or (calc_delta_rho_table_full is True):
             print('calculations have been explicitly set: calc_delta_rho_table', calc_delta_rho_table,
                   '; aggregate_libsize:', aggregate_libsize_table, file=sys.stdout, flush=True)
 
             object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config, existing_output=object_grid[(E, tau)].output,
                                                        calc_delta_rho_table=calc_delta_rho_table,
-                                                       aggregate_libsize_table=aggregate_libsize_table)
+                                                       aggregate_libsize_table=aggregate_libsize_table,
+                                                   calc_delta_rho_full = calc_delta_rho_table_full)
 
             joblib_cloud_atomic_dump(object_grid, tmp_dir/obj_grid_file_name, compress=3,
                                    protocol=5)
