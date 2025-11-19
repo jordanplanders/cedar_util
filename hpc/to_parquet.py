@@ -5,7 +5,6 @@ from itertools import product
 import time
 from functools import reduce
 
-
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
