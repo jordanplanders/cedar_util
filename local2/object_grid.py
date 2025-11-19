@@ -68,12 +68,13 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
         if calc_delta_rho_table is True:
             stats_out = True
         if (full_out is True) or (stats_out is True):
+            print(f'\tcalculating delta rho for {name}; full_out {full_out}, stats_out {stats_out}', file=sys.stdout, flush=True)
             output_col = output_col.calc_delta_rho(full_out=full_out, stats_out=stats_out)
 
         if aggregate_libsize_table is True:
             output_col = output_col.aggregate_libsize()
 
-        print(f'\tcalculated delta rho and libsize aggregation {name}', file=sys.stdout, flush=True)
+        print(f'\tcalculated delta rho (full_out {full_out}, stats_out {stats_out}) and libsize aggregation ({aggregate_libsize_table}) {name}', file=sys.stdout, flush=True)
 
         output_collections.append(output_col)
 
@@ -90,7 +91,7 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
 
     if calc_delta_rho_full is True:
         delta_rho_path_full = existing_output.delta_rho_full.path if existing_output is not None else None
-        if delta_rho_path is not None:
+        if delta_rho_path_full is not None:
             new_output_col.delta_rho_full.path = delta_rho_path_full
 
     if new_output_col.libsize_aggregated is None:
@@ -199,8 +200,8 @@ if __name__ == "__main__":
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     # this is hardcoded but should be released and left to the construction of the e_tau_grps_df
-    E_vals = [4, 5, 6, 7, 8, 9]
-    tau_vals = [1, 2, 3, 4, 5, 6, 7]
+    E_vals = [4, 5, 6, 7, 8, 9, 10]
+    tau_vals = [1, 2, 3, 4, 5, 6, 7, 8]
     comb_df = e_tau_grps_df[e_tau_grps_df['E'].isin(E_vals) & e_tau_grps_df['tau'].isin(tau_vals)].copy()
     comb_plot_df = comb_df[[col for col in comb_df.columns if col != 'lag']].drop_duplicates()
     comb_plot_df = comb_plot_df.sort_values(by=['col_var_id', 'target_var_id', 'E', 'tau'])
@@ -218,7 +219,10 @@ if __name__ == "__main__":
         object_grid = {}
 
     # Process the (E, tau) configuration if not already processed
-    if ((E, tau) not in object_grid.keys()) or (object_grid[(E, tau)] is None):
+    not_in_grid = (E, tau) not in object_grid.keys()
+    output_is_none = (not_in_grid is False) and ((object_grid[(E, tau)] is None) or (object_grid[(E, tau)].output is None))
+    print(f'E{E}-tau{tau}; not_in_grid: {not_in_grid}, output_is_none: {output_is_none}', file=sys.stdout, flush=True)
+    if not_in_grid is True or output_is_none is True:
         print('regardless of flags, going the dual calculations', file=sys.stdout, flush=True)
         object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config, calc_delta_rho_table=True,
                                                aggregate_libsize_table=True, calc_delta_rho_full=True)
@@ -233,6 +237,7 @@ if __name__ == "__main__":
             calc_delta_rho_table = True
             aggregate_libsize_table = True
             calc_delta_rho_table_full = True
+            print('output is None, going the dual calculations', file=sys.stdout, flush=True)
         else:
             if (object_grid[(E, tau)].output.delta_rho_stats is None) or (object_grid[(E, tau)].output.delta_rho_stats.path is None):
                 calc_delta_rho_table = True
@@ -242,9 +247,9 @@ if __name__ == "__main__":
             if (object_grid[(E, tau)].output.libsize_aggregated is None) or (object_grid[(E, tau)].output.libsize_aggregated.path is None):
                 aggregate_libsize_table = True
 
+        print('calculations have been explicitly set: calc_delta_rho_table', calc_delta_rho_table,
+              '; aggregate_libsize:', aggregate_libsize_table, file=sys.stdout, flush=True)
         if (calc_delta_rho_table is True) or (aggregate_libsize_table is True) or (calc_delta_rho_table_full is True):
-            print('calculations have been explicitly set: calc_delta_rho_table', calc_delta_rho_table,
-                  '; aggregate_libsize:', aggregate_libsize_table, file=sys.stdout, flush=True)
 
             object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config, existing_output=object_grid[(E, tau)].output,
                                                        calc_delta_rho_table=calc_delta_rho_table,
