@@ -1,4 +1,4 @@
-# ccm_proj_tools
+# cedar
 
 Tools for managing configuration, parameter generation, data-object handling, and HPC calculations for CCM/EDM workflows. This codebase supports the full parameter-sweep pipeline used in Jordan Landers’ CCM analyses (E–τ grids, lags, surrogates, parquet conversion, config parsing, and data‑var metadata).
 
@@ -8,19 +8,23 @@ This repository provides:
 - HPC scripts for packaging and recovering calculations (`hpc/`)  
 - local workflow tools for generating parameters and grouping runs (`local2/`)  
 
-Analysis environments and CCM computations live in separate projects; `ccm_proj_tools` supplies the supporting infrastructure.
+Analysis environments and CCM computations live in separate projects; `cedar` supplies the supporting infrastructure.
 
 ---
 
 ## Installation
 
-`ccm_proj_tools` uses a `pyproject.toml` with minimal dependencies and a pinned fork of `pyEDM`:
+`cedar` uses a `pyproject.toml` with a minimal dependency set.  
+One dependency—`pyEDM`—is installed from a project-specific fork and pinned to a
+specific commit for reproducibility.
+
+Install with:
 
 ```bash
 pip install .
 ```
 
-or for editable work:
+or for editable development:
 
 ```bash
 pip install -e .
@@ -36,14 +40,14 @@ pip install -e .
 - PyYAML  
 - cloudpickle  
 - joblib  
-- pyEDM (Jordan Landers fork, commit `5defad56b...`)  
+- pyEDM (from a project-specific fork, pinned to commit `5defad56b...`)  
 
 ---
 
 ## Repository Structure
 
 ```
-ccm_proj_tools/
+cedar/
 │
 ├── data_obj/           # DataVar, Relationship, and plotting-related classes
 │
@@ -63,13 +67,13 @@ ccm_proj_tools/
 
 ## Typical Usage
 
-`ccm_proj_tools` is designed to be imported by external scripts,
+`cedar` is designed to be imported by external scripts,
 notebooks, and HPC pipelines. Examples:
 
 ```python
-from ccm_proj_tools.utils.config_parser import ProjectConfig
-from ccm_proj_tools.data_obj.data_var import DataVar
-from ccm_proj_tools.utils.process_output import OutputProcessor
+from cedar.utils.config_parser import ProjectConfig
+from cedar.data_obj.data_var import DataVar
+from cedar.utils.process_output import OutputProcessor
 ```
 
 ### Local workflow utilities
@@ -77,12 +81,12 @@ from ccm_proj_tools.utils.process_output import OutputProcessor
 Group parameter files into calculation bundles:
 
 ```bash
-python -m ccm_proj_tools.local2.calc_grps --project myproj
+python -m cedar.local2.calc_grps --project myproj
 ```
 
 ### HPC usage
 
-CARC-run scripts are located in `ccm_proj_tools/hpc/`:
+CARC-run scripts are located in `cedar/hpc/`:
 
 - `to_parquet.py`  
 - `run_edm_carc_pool2_config_toObj.py`  
