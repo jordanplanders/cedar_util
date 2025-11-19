@@ -5,13 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ccm_proj_tools"
 version = "0.1.0"
-description = "Tools for managing EDM/CCM workflows, data variables, HPC pipelines, and project configs."
-readme = "README.md"
+description = "Tools for managing CCM/EDM workflows and project configuration."
 requires-python = ">=3.10"
-
-authors = [
-  { name = "Jordan Landers" }
-]
+readme = "README.md"
 
 dependencies = [
     "pandas",
@@ -21,7 +17,14 @@ dependencies = [
     "PyYAML",
     "cloudpickle",
     "joblib",
-
     "pyleoclim @ git+https://github.com/LinkedEarth/Pyleoclim_util.git",
-    "pyEDM @ git+https://github.com/jordanplanders/pyEDM.git@5defad56bab1d673a38f6b375a78d7319ac1c8e1#egg=pyEDM",
+    "pyEDM @ git+https://github.com/jordanplanders/pyEDM.git@5defad56bab1d673a38f6b375a78d7319ac1c8e1"
 ]
+
+[tool.setuptools]
+package-dir = {"" = "ccm_proj_tools"}
+
+[tool.setuptools.packages.find]
+where = ["ccm_proj_tools"]
+include = ["*"]
+exclude = ["archive2"]
