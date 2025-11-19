@@ -129,7 +129,8 @@ class DataVarConfig:
             self.surr_ts_time = 'date'
 
         self.set_surr_csv_name()
-        self.surr_data_dir_path = self.set_data_source(config, data_source='data', data_type='surr')
+        if self.surr_ts_csv is not None:
+            self.surr_data_dir_path = self.set_data_source(config, data_source='data', data_type='surr')
 
         for key in var_info.keys():
             if hasattr(self, key):
@@ -141,7 +142,10 @@ class DataVarConfig:
             self.surr_ts_csv = '__'.join([self.surr_csv_stem, self.suffix]).strip(
                 '__') if self.surr_csv_stem is not None else None
         else:
-            self.surr_ts_csv = self.surr_csv_stem
+            if (self.surr_csv_stem is not None) and (self.surr_csv_stem !=''):
+                self.surr_ts_csv = self.surr_csv_stem
+            else:
+                self.surr_ts_csv = None
 
     def set_real_csv_name(self):
         self.real_ts_csv = self.real_csv_stem
