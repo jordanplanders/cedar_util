@@ -4,17 +4,11 @@ import os
 import pandas as pd
 from pathlib import Path
 
-
-
-# from utils.arg_parser import get_parser
-# from utils.config_parser import load_config
-
-# from utils import process_output as po
 try:
     from cedarkit.core.project_config import load_config
     from cedarkit.utils.cli.arg_parser import get_parser
     from cedarkit.utils.experiments.ccm import run_experiment, write_to_file
-    from cedarkit.core.data_objects import RunConfig, CCMConfig
+    from cedarkit.core.data_objects import CCMConfig
     from cedarkit.utils.routing.paths import set_calc_path, set_output_path, check_location
     from cedarkit.utils.io.gonogo import decide_file_handling
 
@@ -24,7 +18,7 @@ except ImportError:
     from utils.cli.arg_parser import get_parser
     from utils.experiments.ccm import run_experiment, write_to_file
     from utils.routing.paths import set_calc_path, set_output_path, check_location
-    from core.data_objects import RunConfig, CCMConfig
+    from core.data_objects import CCMConfig
     from utils.io.gonogo import decide_file_handling
 
 if __name__ == '__main__':
@@ -110,8 +104,10 @@ if __name__ == '__main__':
                 if 'id' in pset_d:
                     pset_d['pset_id'] = pset_d['id']
 
-            new_rc = RunConfig(pset_d)
-            ccm_obj = CCMConfig(new_rc, config, proj_dir=proj_dir)
+            # new_rc = RunConfig(pset_d)
+            # ccm_obj = CCMConfig(new_rc, config, proj_dir=proj_dir)
+            ccm_obj = CCMConfig(pset_d, config, proj_dir=proj_dir)
+
             pset_exists, stem_exists = ccm_obj.check_run_exists()
             # this is strong existence criteria... if want to check for stem existence, use stem_exists
 
@@ -124,9 +120,11 @@ if __name__ == '__main__':
             print('how many cores:', cpu_count, file=sys.stdout, flush=True)
             ccm_obj.cpus =cpu_count
             ccm_obj.self_predict = self_predict
+
+            ccm_out_df, df_path = ccm_obj.run_ccm(overwrite=overwrite, ind=start_ind + time_offset)
             # ccm_obj.id_num = start_ind + time_offset
             # candidate_tuple = (ccm_obj, cpu_count, self_predict, start_ind + time_offset)#(ccm_obj, time_offset, start_ind + time_offset, config, cpu_count, self_predict)
-            write_to_file(*run_experiment(ccm_obj, ind = start_ind + time_offset), overwrite=overwrite)
+            # write_to_file(*run_experiment(ccm_obj, ind = start_ind + time_offset), overwrite=overwrite)
 
     else:
         parameter_ds = parameter_ds[0]
@@ -134,8 +132,7 @@ if __name__ == '__main__':
 
         pset_d = parameter_ds
 
-        new_rc = RunConfig(pset_d)
-        ccm_obj = CCMConfig(new_rc, config, proj_dir=proj_dir)
+        ccm_obj = CCMConfig(pset_d, config, proj_dir=proj_dir)
         pset_exists, stem_exists = ccm_obj.check_run_exists()
         # this is strong existence criteria... if want to check for stem existence, use stem_exists
 
@@ -149,8 +146,10 @@ if __name__ == '__main__':
             # candidate_tuple = (ccm_obj, cpu_count, self_predict,
             #                    start_ind + time_offset)  # (ccm_obj, time_offset, start_ind + time_offset, config, cpu_count, self_predict)
             # write_to_file(*run_experiment(candidate_tuple), overwrite=overwrite)
-            ccm_obj.cpus = cpu_count
+            ccm_obj.cpus =cpu_count
             ccm_obj.self_predict = self_predict
+
+            ccm_out_df, df_path = ccm_obj.run_ccm(overwrite=overwrite, ind=start_ind + time_offset)
             # ccm_obj.id_num = start_ind + time_offset
             # candidate_tuple = (ccm_obj, cpu_count, self_predict, start_ind + time_offset)#(ccm_obj, time_offset, start_ind + time_offset, config, cpu_count, self_predict)
-            write_to_file(*run_experiment(ccm_obj, ind=start_ind + time_offset), overwrite=overwrite)
+            # write_to_file(*run_experiment(ccm_obj, ind=start_ind + time_offset), overwrite=overwrite)
