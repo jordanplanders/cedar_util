@@ -91,7 +91,7 @@ if __name__ == '__main__':
     log_element = []
     self_predict = False
 
-    loc = check_location(local_word='jlanders')
+    loc = check_location(hpc_word='lplander')
     # if Path('/Users/jlanders').exists():
     if loc == 'local':
         print('local', file=sys.stdout, flush=True)
