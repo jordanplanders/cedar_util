@@ -73,7 +73,7 @@ def main():
     params_df = params_df.iloc[start_ind:end_ind]
 
     # Deduplicate groups
-    grouped = cedarkit.utils.tables.parquet_tools.drop_duplicates(ignore_index=True)
+    grouped = params_df.drop_duplicates(ignore_index=True)
 
     # Paths to input/output CSVs
     grp_csv_base = config.csvs.calc_grps
@@ -118,8 +118,7 @@ def main():
         grouped_df = grouped.copy()
         grouped_df.to_csv(grp_csv_path_out, index=False)
 
-    cedarkit.utils.tables.parquet_tools.drop_duplicates(ignore_index=True).to_csv(calc_location / 'E_tau_grps.csv', index=False)
-
+    grouped_df[['col_var_id','target_var_id','E','tau','knn','Tp']].drop_duplicates(ignore_index=True).to_csv(calc_location / 'E_tau_grps.csv', index=False)
     print('Group assignments processed successfully!', flush=True)
 
 
