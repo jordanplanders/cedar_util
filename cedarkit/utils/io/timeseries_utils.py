@@ -1,6 +1,6 @@
 from pathlib import Path
 import pandas as pd
-
+import os
 try:
     from cedarkit.utils.routing.paths import check_location
 except ImportError:
@@ -66,7 +66,7 @@ except ImportError:
 
 # def package_masters(proj_dir, detrended_ps, detrended_surr_ms, col_var_id, data_var, var, modifier,save_choices=[], replace=False, mode='test', file_name=None):
 def package_masters(proj_dir, var_obj, detrended_surr_ms, col_var_id=None, data_var=None, var_generic=None, modifier=None, save_choices=[],
-                        replace=False, mode='test', file_name=None):
+                        replace=False, mode='test', file_name=None, priority='local'):
 
     """
     Save detrended data and surrogates to master_data and master_surrogates folders, respectively.
@@ -123,11 +123,17 @@ def package_masters(proj_dir, var_obj, detrended_surr_ms, col_var_id=None, data_
 
     """
 
+    return_dfs = {'data': None, 'surr': None}
+    real_time_var = 'time'  #'date' #'time'  #config.raw_data.time_var
+    surr_time_var = 'time'  #'date' #'time'  #config.surrogate_data.time_var
     if var_obj is not None:
         col_var_id = var_obj.var_id
         var_generic = var_obj.var
         data_var = var_obj.col_name
         detrended_ps = var_obj.ps
+        real_time_var = var_obj.real_ts_time
+        surr_time_var = var_obj.surr_ts_time
+
         if var_obj.real_csv_stem is not None:
             file_name = var_obj.real_csv_stem
         if (modifier is not None) and (modifier !=''):
@@ -143,52 +149,78 @@ def package_masters(proj_dir, var_obj, detrended_surr_ms, col_var_id=None, data_
     # file_name = f'{col_var_id}_{var}_{modifier}'.strip('_')
     data_d = {'time': -detrended_ps.time, f'{data_var}'.strip('_'): detrended_ps.value}
     data_df = pd.DataFrame(data_d).sort_values(by='time').reset_index(drop=True)
+    data_df.rename(columns={'time': real_time_var}, inplace=True)
+    return_dfs['data'] = data_df
 
     if len(save_choices) == 0:
         print('no save choices provided, not saving anything. Choose from "orig", "surr" or both')
-        return data_df
+        return return_dfs
     if isinstance(save_choices, str):
         save_choices = [save_choices]
 
+    existing_files  = [f for f in os.listdir(proj_dir.parent / 'master_data' ) if file_name in f]
     if 'orig' in save_choices:
+        if replace is False:
+            if len(existing_files) >0:
+                suffix_nums = [int(f.replace(file_name,'').replace('.csv','').replace('_','')) for f in existing_files if f.replace(file_name,'').replace('.csv','').replace('_','').isdigit()]
+                if len(suffix_nums) ==0:
+                    suffix_nums = [0]
+                if len(suffix_nums) >0:
+                    max_suffix = max(suffix_nums)+1
+                    file_name = f'{file_name}_{max_suffix}'
+
         exists = os.path.exists(proj_dir.parent / 'master_data' / f'{file_name}.csv')
-        if replace is True:
-            exists = False
         if exists is False:
+            save_paths = []
+            if priority == 'local':
+                save_paths.append(proj_dir / 'data' / f'{file_name}.csv')
+            elif priority == 'master':
+                save_paths.append(proj_dir.parent / 'master_data' / f'{file_name}.csv')
+            else:
+                save_paths.append(proj_dir.parent / 'master_data' / f'{file_name}.csv')
+                save_paths.append(proj_dir / 'data' / f'{file_name}.csv')
+
             if mode == 'test':
-                print(f'Would save to {proj_dir.parent}/master_data / {file_name}.csv')
+                print(f'File would be saved for scope: {priority} to:', save_paths)
+
             elif mode == 'save':
-                print(f'Saving {proj_dir.parent}/master_data / {file_name}.csv')
-                data_df.to_csv(proj_dir.parent / 'master_data' / f'{file_name}.csv')
+                for save_path in save_paths:
+                    print(f'Saving to {save_path}')
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    data_df.to_csv(save_path)
+                # print(f'Saving {proj_dir.parent}/master_data / {file_name}.csv')
+                # data_df.to_csv(proj_dir.parent / 'master_data' / f'{file_name}.csv')
         else:
             print(f'File {proj_dir.parent}/master_data / {file_name}.csv already exists, skipping saving.')
 
-        if os.path.exists(proj_dir / 'data') is True:
-            exists = os.path.exists(proj_dir / 'data' / f'{file_name}.csv')
-            if replace is True:
-                exists = False
-
-            if exists is False:
-                if mode == 'test':
-                    print(f'Would save to {proj_dir}/data / {file_name}.csv')
-                elif mode == 'save':
-                    print(f'Saving {proj_dir}/data / {file_name}.csv')
-                    data_df.to_csv(proj_dir / 'data' / f'{file_name}.csv')
-            else:
-                print(f'File {proj_dir}/data / {file_name}.csv already exists, skipping saving.')
+        # if os.path.exists(proj_dir / 'data') is True:
+        #     exists = os.path.exists(proj_dir / 'data' / f'{file_name}.csv')
+        #     if replace is True:
+        #         exists = False
+        #
+        #     if exists is False:
+        #         if mode == 'test':
+        #             print(f'Would save to {proj_dir}/data / {file_name}.csv')
+        #         elif mode == 'save':
+        #             print(f'Saving {proj_dir}/data / {file_name}.csv')
+        #             data_df.to_csv(proj_dir / 'data' / f'{file_name}.csv')
+        #     else:
+        #         print(f'File {proj_dir}/data / {file_name}.csv already exists, skipping saving.')
 
     if 'surr' in save_choices:
         detrended_surr_file_name = f'pyleo_surr_{file_name}'.strip('_')
         detrended_surr_d = {
-            'date': -detrended_ps.time}  # , 'value': orig.value, 'source': orig.label, 'var': orig.value_name}
+            'time': -detrended_ps.time}  # , 'value': orig.value, 'source': orig.label, 'var': orig.value_name}
 
         for ik in range(len(detrended_surr_ms.series_list)):
             detrended_surr_d[f'{var_generic}_{ik + 1}'] = detrended_surr_ms.series_list[ik].value
 
-        if mode == 'save':
-            detrended_surr_df = pd.DataFrame(detrended_surr_d)
-            detrended_surr_df.sort_values(by='date', inplace=True)
-            detrended_surr_df.reset_index(drop=True, inplace=True)
+        # if mode == 'save':
+        detrended_surr_df = pd.DataFrame(detrended_surr_d)
+        detrended_surr_df.sort_values(by='time', inplace=True)
+        detrended_surr_df.reset_index(drop=True, inplace=True)
+        detrended_surr_df.rename(columns={'time': surr_time_var}, inplace=True)
+        return_dfs['surr'] = detrended_surr_df
 
         exists = os.path.exists(proj_dir.parent / 'master_surrogates' / f'{detrended_surr_file_name}.csv')
         if replace is True:
@@ -204,6 +236,7 @@ def package_masters(proj_dir, var_obj, detrended_surr_ms, col_var_id=None, data_
             print(
                 f'File {proj_dir.parent}/master_surrogates / {detrended_surr_file_name}.csv already exists, skipping saving.')
 
+        # (proj_dir / 'surrogates').mkdir(parents=True, exist_ok=True)
         if os.path.exists(proj_dir / 'surrogates') is True:
             exists = os.path.exists(proj_dir / 'surrogates' / f'{detrended_surr_file_name}.csv')
             if replace is True:
@@ -226,7 +259,7 @@ def package_masters(proj_dir, var_obj, detrended_surr_ms, col_var_id=None, data_
         #     print(f'Saving {proj_dir.parent}/master_surrogates / {detrended_surr_file_name}.csv')
         #     detrended_surr_df.to_csv(proj_dir.parent/'master_surrogates' / f'{detrended_surr_file_name}.csv')#, index=False)
 
-    return data_df
+    return return_dfs
 
 # def make_slurm_script(E_grp, new_param_file, new_file_name, slurm_dir, source_file_path, default_calc_length=25,
 #                       max_time_ask=240, buffer_percent=1.5, ntasks=36, append=False):
