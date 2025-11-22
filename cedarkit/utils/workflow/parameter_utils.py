@@ -433,7 +433,7 @@ parameters_d = {
 }
 
 
-def process_group(arg_tuple, write_mode='a'):
+def process_params_group(arg_tuple, write_mode='a'):
     '''
     Process a group of arguments to generate parameter combinations and write them to a CSV file.
     Args:
@@ -519,7 +519,7 @@ def process_group(arg_tuple, write_mode='a'):
     # param_df.to_csv(param_csv, index=False)
 
 
-def tidy_up(param_csv_paths, keep='first'):
+def tidy_up_params(param_csv_paths, keep='first'):
     param_csv_paths = list(set(param_csv_paths))
     for param_csv_path in param_csv_paths:
 
@@ -542,3 +542,35 @@ def tidy_up(param_csv_paths, keep='first'):
         print(f"Summary CSV file {summary_csv_path} has been created.", file=sys.stdout, flush=True)
 
         param_df.to_csv(param_csv_path, index=False)
+
+
+def make_comb_df(col_var_ids=None, target_var_ids=None, E_tau_combs=None, lag_vals=None, tp_vals=None, knn_vals=None, df_path=None):
+    if df_path is not None:
+        comb_df = pd.read_csv(df_path)
+        return comb_df
+    else:
+        assert col_var_ids is not None
+        assert target_var_ids is not None
+        assert E_tau_combs is not None
+        assert lag_vals is not None
+        assert tp_vals is not None
+        assert knn_vals is not None
+    comb_list = []
+    for col_var_id in col_var_ids:
+        for target_var_id in target_var_ids:
+            for pair in E_tau_combs:
+                E, tau = pair
+                for lag in lag_vals:
+                    for tp in tp_vals:
+                        for knn in knn_vals:
+                            comb_list.append({
+                                'E': E,
+                                'tau': tau,
+                                'lag': lag,
+                                'Tp': tp,
+                                'knn': knn,
+                                'col_var_id': col_var_id,
+                                'target_var_id': target_var_id,
+                            })
+    comb_df = pd.DataFrame(comb_list)
+    return comb_df
