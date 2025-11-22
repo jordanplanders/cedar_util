@@ -4,14 +4,14 @@ import sys
 from pathlib import Path
 
 
-def check_location(target_path=None, local_word='jlanders'):
+def check_location(target_path=None, hpc_word='lplander'):
     if target_path is None:
         target_path = Path.cwd()
 
-    if local_word in str(target_path):
-        return 'local'
+    if hpc_word in str(target_path):
+        return 'hpc'
     else:
-        return 'runners'
+        return 'local'
 
 
 def set_calc_path(args, proj_dir, config, second_suffix=''):
