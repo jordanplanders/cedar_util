@@ -43,6 +43,7 @@ class DataVarConfig:
         self.source = None
         self.unit = None
         self.time_unit = None
+        self.delta_t = None
         self.var_label = None
         self.var_name = None
         self.year = None
@@ -75,6 +76,7 @@ class DataVarConfig:
         var_info = var_info.to_dict()
         # self.load_from_config(config, proj_dir)
 
+        # set real data info
         real_ts_d = var_info.pop('real_data_ts', None)
         # real_csv_stem
         if 'real_csv_stem' in var_info.keys():
@@ -235,7 +237,25 @@ class VarObject(DataVarConfig):
             df = df.rename(columns={specified_time_var: 'time'})
         if 'date' in df.columns:
             df = df.rename(columns={'date': 'time'})
-        df['time'] = df['time'].astype('int')
+
+        if self.delta_t is None:
+            # infer delta_t from time values
+            time_diffs = df['time'].sort_values().diff().dropna().unique()
+            if len(time_diffs) > 0:
+                td = np.asarray(time_diffs, dtype=float)
+                # proportion of diffs that are effectively integer-valued
+                is_int = np.isclose(td, np.round(td), atol=1e-8)
+                int_ratio = np.mean(is_int)
+                if int_ratio >= 0.9:
+                    # mostly integers: use rounded minimum as integer
+                    self.delta_t = int(np.min(np.round(td)))
+                else:
+                    # mostly floats: keep the minimum as float
+                    self.delta_t = float(np.min(td))
+            else:
+                self.delta_t = None  # default to 1 if unable to infer            else:
+        # self.delta_t = 1  # default to 1 if unable to infer
+        # df['time'] = df['time'].astype('int')
 
         return df, 'time'
 
