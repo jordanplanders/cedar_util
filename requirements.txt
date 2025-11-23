@@ -7,5 +7,5 @@ PyYAML==6.0.3
 cloudpickle==3.1.2
 joblib==1.4.2
 pyleoclim @ git+https://github.com/LinkedEarth/Pyleoclim_util.git
-pyEDM @ git+https://github.com/jordanplanders/pyEDM.git@5defad56bab1d673a38f6b375a78d7319ac1c8e1#egg=pyEDM
+pyEDM @ git+https://github.com/jordanplanders/pyEDM.git
 
