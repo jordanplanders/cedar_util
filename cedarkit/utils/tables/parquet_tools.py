@@ -1,7 +1,6 @@
 import hashlib
 import json
 
-import numpy
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -9,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from cedarkit.utils.cli.logging import setup_logging, log_line
+    from cedarkit.utils.cli import setup_logging, log_line
 except ImportError:
     # Fallback: imports when running as a package
     from utils.cli.logging import setup_logging, log_line

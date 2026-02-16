@@ -1,3 +1,3 @@
 from .parameter_utils import *
 from .process_output import *
-from .slurm_tools import *
+from cedarkit.utils.workflow.slurm_tools import *

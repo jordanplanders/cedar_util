@@ -10,14 +10,8 @@ from collections import defaultdict
 import uuid
 # from pyarrow import table
 import gc
-import re
 import pyarrow as pa
 import pyarrow.compute as pc
-import sys
-import inspect
-import os
-from pathlib import Path
-
 
 # import cedarkit.utils.paths
 # from cedarkit.utils.paths import set_calc_path, set_output_path, template_replace, check_exists
@@ -26,11 +20,11 @@ from pathlib import Path
 try:
     from cedarkit.core.data_var import *
     from cedarkit.core.relationship import *
-    from cedarkit.utils.routing.paths import *
-    from cedarkit.utils.routing.file_name_parsers import template_replace
-    from cedarkit.utils.tables.parquet_tools import as_len1_array, as_lenN_array
+    from cedarkit.utils.routing import *
+    from cedarkit.utils.routing import template_replace
+    from cedarkit.utils.tables import as_len1_array, as_lenN_array
     # from cedarkit.utils.cli.logging import print_log_line
-    from cedarkit.utils.cli.logging import log_line
+    from cedarkit.utils.cli import log_line
 
 except ImportError:
     # Fallback: imports when running as a package
@@ -1652,7 +1646,7 @@ class CCMConfig(RunConfig):
 
     def run_ccm(self, overwrite=None, ind=None, args=None, script=None):
 
-        from cedarkit.utils.experiments.ccm import run_experiment, write_to_file
+        from cedarkit.utils.experiments import run_experiment, write_to_file
         from cedarkit.utils.io.gonogo import decide_file_handling
         if ind is not None:
             self.id_num = ind

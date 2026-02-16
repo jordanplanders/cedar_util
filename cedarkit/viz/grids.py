@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from cedarkit.utils.plotting.plotting_utils import font_resizer, int_yticks_within_ylim, replace_supylabel, isotope_ylabel, replace_latex_labels
-    from cedarkit.utils.cli.logging import log_line
+    from cedarkit.utils.cli import log_line
 
 except ImportError:
     # Fallback: imports when running as a package

@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from cedarkit.utils.cli.logging import log_line
+    from cedarkit.utils.cli import log_line
 except ImportError:
     from utils.cli.logging import log_line
 

@@ -9,7 +9,7 @@ import types
 logger = logging.getLogger(__name__)
 
 try:
-    from cedarkit.utils.cli.logging import setup_logging, log_line
+    from cedarkit.utils.cli import setup_logging, log_line
     from cedarkit.core.data_objects import DataGroup, OutputCollection, RunConfig, Output
     from cedarkit.viz.grids import GridCell
     from cedarkit.core.relationship import Relationship

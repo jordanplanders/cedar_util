@@ -1,5 +1,5 @@
 
-from .data_objects import *
+from cedarkit.core.data_objects import *
 from .data_var import *
 from .project_config import *
-from .relationship import *
+from cedarkit.core.relationship import *

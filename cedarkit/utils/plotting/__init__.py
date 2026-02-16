@@ -1,1 +1,1 @@
-from .plotting_utils import *
+from cedarkit.utils.plotting.plotting_utils import *

@@ -6,8 +6,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from cedarkit.utils.workflow.parameter_utils import get_assessed_param_picks
-    from cedarkit.utils.cli.logging import setup_logging, log_line
+    from cedarkit.utils.workflow import get_assessed_param_picks
+    from cedarkit.utils.cli import setup_logging, log_line
 except ImportError:
     from utils.workflow.parameter_utils import get_assessed_param_picks
     from utils.cli.logging import setup_logging, log_line

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 try:
     from cedarkit.utils.routing.file_name_parsers import check_csv
     from cedarkit.utils.io.timeseries_utils import choose_data_source, remove_extra_index
-    from cedarkit.utils.cli.logging import setup_logging, log_line
+    from cedarkit.utils.cli import setup_logging, log_line
 except ImportError:
     # Fallback: imports when running as a package
     from utils.routing.file_name_parsers import check_csv

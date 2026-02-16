@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 try:
     from cedarkit.utils.plotting.plotting_utils import check_palette_syntax, add_relation_s_inferred, replace_latex_labels, isotope_ylabel
-    from cedarkit.utils.cli.logging import log_line
+    from cedarkit.utils.cli import log_line
 except ImportError:
     from utils.plotting.plotting_utils import check_palette_syntax, add_relation_s_inferred, replace_latex_labels, isotope_ylabel
     from utils.cli.logging import log_line

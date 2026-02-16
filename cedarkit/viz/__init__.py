@@ -1,2 +1,2 @@
-from .grids import *
-from .panels import *
+from cedarkit.viz.grids import *
+from cedarkit.viz.panels import *

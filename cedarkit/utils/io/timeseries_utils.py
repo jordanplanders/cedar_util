@@ -5,8 +5,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from cedarkit.utils.routing.paths import check_location
-    from cedarkit.utils.cli.logging import setup_logging, log_line
+    from cedarkit.utils.routing import check_location
+    from cedarkit.utils.cli import setup_logging, log_line
     # from cedarkit.utils.routing.file_name_parsers import remove_extra_index
 except ImportError:
     # Fallback: imports when running as a package

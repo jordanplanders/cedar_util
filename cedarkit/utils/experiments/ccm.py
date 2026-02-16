@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from cedarkit.utils.workflow import process_output as po
-    from cedarkit.utils.cli.logging import setup_logging, log_line
+    from cedarkit.utils.cli import setup_logging, log_line
 except ImportError:
     # Fallback: imports when running as a package
     from utils.workflow import process_output as po

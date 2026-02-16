@@ -6,17 +6,15 @@ from pathlib import Path
 import sys
 import os
 
-import cedarkit.utils.tables.parquet_tools
-
 # python
 # Preferred: absolute imports (works if you run as: python -m cedarkit.local2.calc_grps)
 try:
-    from cedarkit.utils.cli.arg_parser import get_parser
+    from cedarkit.utils.cli import get_parser
     from cedarkit.core.project_config import load_config
     # adjust the module path below to where these helpers actually live in your project
-    from cedarkit.utils.routing.paths import check_location, set_calc_path, set_output_path
-    from cedarkit.utils.cli.arg_parser import get_parser
-    from cedarkit.utils.cli.logging import setup_logging, log_line
+    from cedarkit.utils.routing import check_location, set_calc_path, set_output_path
+    from cedarkit.utils.cli import get_parser
+    from cedarkit.utils.cli import setup_logging, log_line
 except ImportError:
     # Fallback: imports when running as a package
     from utils.cli.arg_parser import get_parser

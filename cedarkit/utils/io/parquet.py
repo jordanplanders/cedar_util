@@ -13,9 +13,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from cedarkit.utils.routing.file_name_parsers import template_replace, parse_surr_label
-    from cedarkit.utils.tables.parquet_tools import drop_duplicates, make_uid
-    from cedarkit.utils.cli.logging import setup_logging, log_line
+    from cedarkit.utils.routing import template_replace, parse_surr_label
+    from cedarkit.utils.tables import drop_duplicates, make_uid
+    from cedarkit.utils.cli import setup_logging, log_line
 except ImportError:
     from utils.routing.file_name_parsers import template_replace, parse_surr_label
     from utils.tables.parquet_tools import drop_duplicates, make_uid

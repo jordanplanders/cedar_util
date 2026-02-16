@@ -6,10 +6,10 @@ from pathlib import Path
 
 try:
     from cedarkit.core.project_config import load_config
-    from cedarkit.utils.cli.arg_parser import get_parser
-    from cedarkit.utils.experiments.ccm import run_experiment, write_to_file
+    from cedarkit.utils.cli import get_parser
+    from cedarkit.utils.experiments import run_experiment, write_to_file
     from cedarkit.core.data_objects import CCMConfig
-    from cedarkit.utils.routing.paths import set_calc_path, set_output_path, check_location
+    from cedarkit.utils.routing import set_calc_path, set_output_path, check_location
     from cedarkit.utils.io.gonogo import decide_file_handling
 except ImportError:
     # Fallback: imports when running as a package

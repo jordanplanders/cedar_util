@@ -18,9 +18,9 @@ dependencies = [
     "cloudpickle",
     "joblib",
     "pyleoclim",
-    "pyEDM @ git+https://github.com/jordanplanders/pyEDM.git@5defad56bab1d673a38f6b375a78d7319ac1c8e1",
+    "pyEDM",
 ]
-
+#@ git+https://github.com/jordanplanders/pyEDM.git@5defad56bab1d673a38f6b375a78d7319ac1c8e1
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["cedarkit"]

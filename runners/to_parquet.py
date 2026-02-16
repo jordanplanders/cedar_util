@@ -5,11 +5,11 @@ import pandas as pd
 import os
 
 try:
-    from cedarkit.utils.cli.arg_parser import get_parser
+    from cedarkit.utils.cli import get_parser
     from cedarkit.core.project_config import load_config
-    from cedarkit.utils.io.parquet import setup_conversion_from_calc_grp, package_calc_grp_results_to_parquet
-    from cedarkit.utils.routing.paths import set_calc_path, set_output_path
-    from cedarkit.utils.routing.file_name_parsers import check_csv
+    from cedarkit.utils.io import setup_conversion_from_calc_grp, package_calc_grp_results_to_parquet
+    from cedarkit.utils.routing import set_calc_path, set_output_path
+    from cedarkit.utils.routing import check_csv
 except ImportError:
     from utils.cli.arg_parser import get_parser
     from core.project_config import load_config
