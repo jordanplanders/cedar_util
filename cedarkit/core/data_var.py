@@ -189,10 +189,14 @@ class DataVarConfig:
             except Exception:
                 loc_config = None
             if data_type == 'real':
-                config_source = getattr(loc_config, 'raw_data', None) if loc_config is not None else None
+                config_source = getattr(loc_config, 'raw_data_dir', None) if loc_config is not None else None
+                if config_source is None:
+                    config_source = getattr(loc_config, 'raw_data', None) if loc_config is not None else None
                 config_source = config_source if config_source is not None else 'data'
             elif data_type in ['surr', 'surrogate']:
-                config_source = getattr(loc_config, 'surrogate_data', None) if loc_config is not None else None
+                config_source = getattr(loc_config, 'surr_data_dir', None) if loc_config is not None else None
+                if config_source is None:
+                    config_source = getattr(loc_config, 'surrogate_data', None) if loc_config is not None else None
                 config_source = config_source if config_source is not None else 'surrogates'
             else:
                 config_source = 'data'
