@@ -21,6 +21,7 @@ def decide_file_handling(args, file_exists: bool, modify_datetime=None) -> tuple
     run_continue = True
     overwrite    = True
 
+    print(args, file=sys.stdout, flush=True)
     # 1) if the file exists & no override → maybe skip
     if file_exists and not args.override:
         if args.datetime_flag is not None:
