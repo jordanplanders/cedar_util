@@ -435,6 +435,7 @@ class LagPlot(BasePlot):
         if stats_only is False and outputgrp.delta_rho_full is None:
             outputgrp.calc_delta_rho(stats_out=False, full_out=True)
             self.palette = check_palette_syntax(self.palette, outputgrp.delta_rho_full.full)
+
         elif stats_only is False:
             outputgrp.delta_rho_full.get_table()
 
