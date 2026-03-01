@@ -12,6 +12,7 @@ import uuid
 import gc
 import pyarrow as pa
 import pyarrow.compute as pc
+from types import SimpleNamespace
 
 # import cedarkit.utils.paths
 # from cedarkit.utils.paths import set_calc_path, set_output_path, template_replace, check_exists
@@ -267,7 +268,7 @@ class RunConfig:
 
     Inherited by DataGroup class
     '''
-    def __init__(self, grp_d, tmp_dir=None):
+    def __init__(self, grp_d, tmp_dir=None, **_ignored_kwargs):
 
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
@@ -1488,33 +1489,75 @@ def merge_variable_ts(col_var_obj, target_var_obj):
     return df
 
 
-class CCMConfig(RunConfig):
+class CMConfigBase(RunConfig):
 
-    def __init__(self, grp_specs, config, proj_dir=None, cpus=1, exclusion_radius=None):
+    def __init__(self, grp_specs, config, proj_dir=None, tmp_dir=None, exclusion_radius=None, init_var_objs=True):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-
-        rc = RunConfig(grp_specs)
-        try:
-            # Copy all attributes from the provided DataVarConfig
-            for key, value in rc.to_dict().items():
-                setattr(self, key, value)
-        except:
-            # Initialize as a new DataVarConfig
-            super().__init__(rc)
+        super().__init__(grp_specs, tmp_dir=tmp_dir)
 
         if proj_dir is not None:
             self.proj_dir = proj_dir
 
-        if self.proj_dir is not None:
+        if init_var_objs and self.proj_dir is not None:
             self.set_var_objs(config, self.proj_dir)
+
+        self.df = None
+        self.output_dir = None
+        self.output_path = None
+        self.calc_location = None
+        self.time_var = None
+        self.noTime = None
+
+        self.exclusion_radius = np.abs(get_static(self.tau) * (get_static(self.E) - 1)) if exclusion_radius is None else exclusion_radius
+
+    def set_col_ts(self, surr_num=None):
+        if getattr(self, "col_var_obj", None) is None:
+            return
+        if self.col_var_obj.ts_type == 'surr':
+            if (self.col_var_obj.surr_num is None) and (surr_num is not None):
+                self.col_var_obj.surr_num = surr_num
+
+        if self.col_var_obj.surr_num not in (0, None):
+            self.col_var_obj.get_surr(self.col_var_obj.surr_num)
+        else:
+            self.col_var_obj.get_real()
+
+    def set_target_ts(self, surr_num=None):
+        if getattr(self, "target_var_obj", None) is None:
+            return
+        if self.surr_var in ('y', self.target_var, 'both'):
+            if surr_num is not None:
+                self.target_var_obj.surr_num = surr_num
+
+        if self.target_var_obj.surr_num not in (0, None):
+            self.target_var_obj.get_surr(self.target_var_obj.surr_num)
+        else:
+            self.target_var_obj.get_real()
+
+    def make_df(self):
+        self.df = merge_variable_ts(self.col_var_obj, self.target_var_obj)
+        self.df = self.df.iloc[self.train_ind_i : self.train_ind_f].reset_index(drop=True) if self.train_ind_f is not None else self.df.iloc[self.train_ind_i : ].reset_index(drop=True)
+        return self
+
+
+class CCMConfig(CMConfigBase):
+
+    def __init__(self, grp_specs, config, proj_dir=None, cpus=1, exclusion_radius=None, limit_surr_libsizes= True):
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+
+        rc = RunConfig(grp_specs)
+        super().__init__(grp_specs, config, proj_dir=proj_dir, exclusion_radius=exclusion_radius, init_var_objs=True)
 
         self.file_name = self.get_filename(config)
 
         self.df = None
-        self.weighted = False
-        self.exclusion_radius = np.abs(get_static(self.tau)*(get_static(self.E)-1)) if exclusion_radius is None else exclusion_radius
-        self.self_predict = False
+        self.weighted = grp_specs['weighted'] if 'weighted' in grp_specs.keys() else False
+        self.self_predict = grp_specs['self_predict'] if 'self_predict' in grp_specs.keys() else False
         self.overwrite = None
+        try:
+            self.min_window = config.ccm_config.min_window
+        except:
+            self.min_window  = None
         self.max_libsize = config.ccm_config.max_libsize
         self.libsize_step = config.ccm_config.libsize_step
         self.libsizes = None# np.arange(self.knn+1, self.max_libsize+1, self.libsize_step)
@@ -1534,7 +1577,16 @@ class CCMConfig(RunConfig):
         self.set_target_ts()
 
         self.make_df().shift()
+        try:
+            self.min_libsize = config.ccm_config.min_libsize
+        except:
+             self.min_libsize = self.knn + 5
+
         self.set_libsizes()
+
+        if self.target_var_obj.ts_type == 'surr' or self.col_var_obj.ts_type == 'surr':
+            if limit_surr_libsizes is True:
+                self.libsizes = self.libsizes[-5:]
 
         extra_cols = [col for col in self.df.columns if col not in (self.col_var_obj.col_name, self.target_var_obj.col_name)]
         self.time_var = extra_cols[0] if len(extra_cols) >0 else None
@@ -1577,14 +1629,27 @@ class CCMConfig(RunConfig):
 
     def set_output_calc_sub(self, config, output_dir, file_name):
 
-        grp_path_template = config.output.csv.dir_structure#config.get_dynamic_attr("output.{var}", 'dir_structure_csv')  # config.output.grp_dir_structure
-        grp_path_template_filled = template_replace(grp_path_template, self.to_dict(), return_replaced=False)
-        grp_path = self.output_dir / grp_path_template_filled
+        # Route raw CCM CSV outputs to intermediate when configured.
+        use_intermediate = getattr(config, "get_entry", lambda: None)() == "csv" and hasattr(config, "intermediate")
+        if use_intermediate and hasattr(config.intermediate, "csv"):
+            csv_block = config.intermediate.csv
+            base = Path(self.calc_location) / "intermediate" / (getattr(csv_block, "dir", "csv") or "csv")
+            grp_path_template = getattr(csv_block, "dir_structure", "")
+            grp_path_template_filled = template_replace(grp_path_template, self.to_dict(), return_replaced=False)
+            grp_path = base / grp_path_template_filled if grp_path_template_filled else base
+        else:
+            grp_path_template = config.output.csv.dir_structure#config.get_dynamic_attr("output.{var}", 'dir_structure_csv')  # config.output.grp_dir_structure
+            grp_path_template_filled = template_replace(grp_path_template, self.to_dict(), return_replaced=False)
+            grp_path = self.output_dir / grp_path_template_filled
 
         return grp_path
 
     def set_libsizes(self):
-        self.libsizes = np.arange(self.knn + 1, self.max_libsize + 1, self.libsize_step)
+        if self.min_window is not None:
+            self.libsizes = np.concatenate([np.arange(self.min_libsize, self.min_libsize+self.min_window, self.libsize_step),
+                                            np.arange(self.max_libsize -self.min_window, self.max_libsize, self.libsize_step)])
+        else:
+            self.libsizes = np.arange(self.min_libsize, self.max_libsize + 1, self.libsize_step)
 
     def set_col_ts(self, surr_num=None):
         if self.col_var_obj.ts_type == 'surr':
@@ -1651,8 +1716,20 @@ class CCMConfig(RunConfig):
         if ind is not None:
             self.id_num = ind
 
+
         if args is None:
-            args = {'override':False, 'datetime_flag':None, 'write':'append'}
+            if overwrite is None:
+                overwrite = False
+            args = SimpleNamespace(override=overwrite, datetime_flag=None, write='append')
+        else:
+            if not isinstance(args, SimpleNamespace):
+                if isinstance(args, dict):
+                    args = SimpleNamespace(**args)
+                elif hasattr(args, '__dict__'):
+                    args = SimpleNamespace(**vars(args))
+                else:
+                    raise TypeError(f'Unsupported args type for run_ccm: {type(args)}')
+            print('args provided for CCM run:', args)
 
         pset_exists, stem_exists = self.check_run_exists()
         overwrite_flag = overwrite if overwrite is not None else self.overwrite
