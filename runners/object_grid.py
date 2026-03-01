@@ -58,12 +58,12 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
         - GridCell: to encapsulate the results for the grid cell corresponding to (E, tau).
     '''
 
-    print(f'Processing E={grp_info["E"]}, tau={grp_info["tau"]}', output_location / 'parquet', file=sys.stdout, flush=True)
+    print(f'Processing E={grp_info["E"]}, tau={grp_info["tau"]}', output_location , file=sys.stdout, flush=True)
 
     test_grp = DataGroup(grp_info, tmp_dir=tmp_dir)
     print('\tgetting files', file=sys.stdout, flush=True)
 
-    test_grp.get_files(config, output_location / 'parquet',
+    test_grp.get_files(config, output_location ,
                        file_name_pattern='E{E}_tau{tau}_lag{lag}', source='parquet')
 
     # print(f'\tfound {len(test_grp.file_list)} files for E={grp_info["E"]}, tau={grp_info["tau"]}', file=sys.stdout, flush=True)
@@ -204,6 +204,8 @@ if __name__ == "__main__":
     parser = get_parser()
     args = parser.parse_args()
 
+
+
     if args.project is not None:
         proj_name = args.project
     else:
@@ -218,7 +220,11 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # When run from the command line, assumes that the current working directory is the directory containing the proj_name (dyad) directory e.g. hol_temp_tsi_ccm
-    proj_dir = Path(os.getcwd()) / proj_name
+    if args.proj_dir is not None:
+        proj_dir = Path(args.proj_dir) / proj_name
+    else:
+        proj_dir = Path(os.getcwd()) / proj_name
+
     gen_config = 'proj_config'
     config = load_config(proj_dir / f'{gen_config}.yaml')
 
@@ -242,7 +248,7 @@ if __name__ == "__main__":
         if 'calc_delta_rho_full' in args.flags:
             calc_delta_rho_table_full = True
 
-    calc_location = set_calc_path(None, proj_dir, config, '')
+    calc_location = set_calc_path(args, proj_dir, config)
     log_line(logger, f'Calculation location: {calc_location}', indent=0, log_type="info")
     # print(f'Calculation location: {calc_location}', file=sys.stdout, flush=True)
     # print(f'Read e_tau_grps_df from {group_file_name}.', file=sys.stdout, flush=True)
@@ -250,7 +256,7 @@ if __name__ == "__main__":
 
     e_tau_grps_df = pd.read_csv(calc_location / check_csv(group_file_name))
 
-    output_location = set_output_path(None, calc_location, config)
+    output_location = resolve_consolidated_dir(calc_location, config, "parquet")
     # output_parquet_location = output_location / output_config.dir_structure
     tmp_dir = proj_dir / tmp_dir
     tmp_dir.mkdir(parents=True, exist_ok=True)
