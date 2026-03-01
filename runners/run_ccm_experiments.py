@@ -10,6 +10,7 @@ try:
     from cedarkit.utils.experiments import run_experiment, write_to_file
     from cedarkit.core.data_objects import CCMConfig
     from cedarkit.utils.routing import set_calc_path, set_output_path, check_location
+    from cedarkit.utils.routing import check_csv
     from cedarkit.utils.io.gonogo import decide_file_handling
 except ImportError:
     # Fallback: imports when running as a package
@@ -17,6 +18,7 @@ except ImportError:
     from utils.cli.arg_parser import get_parser
     from utils.experiments.ccm import run_experiment, write_to_file
     from utils.routing.paths import set_calc_path, set_output_path, check_location
+    from utils.routing.file_name_parsers import check_csv
     from core.data_objects import CCMConfig
     from utils.io.gonogo import decide_file_handling
 
@@ -43,7 +45,7 @@ if __name__ == '__main__':
     if args.parameters is not None:
         parameter_flag = args.parameters
         parameter_dir = proj_dir / 'parameters'
-        parameter_path = parameter_dir / f'{parameter_flag}.csv'
+        parameter_path = parameter_dir / check_csv(parameter_flag)
         parameter_df = pd.read_csv(parameter_path)
     else:
         print('parameters are required', file=sys.stdout, flush=True)
