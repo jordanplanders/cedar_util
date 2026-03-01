@@ -16,13 +16,15 @@ try:
     from cedarkit.utils.routing import template_replace, parse_surr_label
     from cedarkit.utils.tables import drop_duplicates, make_uid
     from cedarkit.utils.cli import setup_logging, log_line
+    from cedarkit.utils.routing.paths import resolve_consolidated_dir, resolve_intermediate_dir
 except ImportError:
     from utils.routing.file_name_parsers import template_replace, parse_surr_label
     from utils.tables.parquet_tools import drop_duplicates, make_uid
     from utils.cli.logging import setup_logging, log_line
+    from utils.routing.paths import _resolve_consolidated_dir, _resolve_intermediate_dir
 
 
-def setup_conversion_from_calc_grp(output_dir, config, calc_grp_d):
+def setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, output_dir = None, intermediate_type = 'csv', consolidated_type='parquet'):
     '''
     Setup paths and variables for conversion from CSV to Parquet for a given calculation group.
     Parameters:
@@ -39,16 +41,28 @@ def setup_conversion_from_calc_grp(output_dir, config, calc_grp_d):
     parts_d = calc_grp_d.copy()
     # construct path pattern
     fallback_E_tau_grp_pattern = 'knn_{knn}/tp_{Tp}/{col_var_id}_{target_var_id}/E{E}_tau{tau}'
+    intermediate_output = resolve_intermediate_dir(calc_location, config, intermediate_type)
+    print('intermediate_output', intermediate_output, file=sys.stdout, flush=True)
     E_tau_grp_pattern = config.output.parquet.dir_structure if config is not None else fallback_E_tau_grp_pattern
+    print('E_tau_grp_pattern', E_tau_grp_pattern,parts_d, file=sys.stdout, flush=True)
+    # try:
+    #     output_sub = config.output.dir
+    # except:
+    #     output_sub = 'parquet'
 
     # directory of existing CSV input
-    e_tau_dir_read = output_dir/template_replace(E_tau_grp_pattern, parts_d, return_replaced=False)
+
 
     # update parts_d as determined from file structure with values from config (in case they differ)
     parts_d['col_var_id']=config.col.var_id
     parts_d['target_var_id']=config.target.var_id
+
+    e_tau_dir_read = intermediate_output/template_replace(E_tau_grp_pattern, parts_d, return_replaced=False)
+    print('e_tau_dir_read', e_tau_dir_read, file=sys.stdout, flush=True)
     # directory of future parquet output
-    e_tau_dir_write = output_dir/'parquet'/template_replace(E_tau_grp_pattern, parts_d, return_replaced=False)
+    consolidated_output_location = resolve_consolidated_dir(calc_location, config, consolidated_type)
+
+    e_tau_dir_write = consolidated_output_location/template_replace(E_tau_grp_pattern, parts_d, return_replaced=False)
 
     # pull from config
     col_var = config.col.var
@@ -99,7 +113,7 @@ def package_calc_grp_results_to_parquet(
     existing = []
     write_paths = []
 
-    print(e_tau_dir_read, e_tau_dir_read.exists(), e_tau_dir_read.is_dir(), file=sys.stdout, flush=True)
+    print('from parquet', e_tau_dir_read, e_tau_dir_read.exists(), e_tau_dir_read.is_dir(), file=sys.stdout, flush=True)
     # if CSV input directory does not exist, return
     if not e_tau_dir_read.exists() or not e_tau_dir_read.is_dir():
         print(f"Directory {e_tau_dir_read} does not exist or is not a directory", file=sys.stderr, flush=True)
@@ -143,6 +157,8 @@ def package_calc_grp_results_to_parquet(
         file_name_parquet = template_replace(config.output.parquet.file_format, grp_d, return_replaced=False)
         write_path = e_tau_dir_write/ f"{file_name_parquet}.parquet"
         write_path_file_valid = os.path.exists(write_path)
+        if write_path_file_valid is False:
+            print(f"No existing parquet file at {write_path}, will create new one.", file=sys.stdout, flush=True)
 
         # check existing parquet to see what has been recorded
         if write_path_file_valid is True:
