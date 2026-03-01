@@ -46,6 +46,7 @@ def get_parser():
     parser.add_argument('-l', '--flags',dest='flags',  nargs='+',
                         type=str, help="Specify any additional flags")
     parser.add_argument('--cpus', dest='cpus', type=int, help="Specify number of CPUs to use")
+    parser.add_argument('--proj_dir', dest='proj_dir', type=str, help="Specify number of CPUs to use")
 
     return parser
 
