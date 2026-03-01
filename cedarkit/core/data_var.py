@@ -2,6 +2,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import pyleoclim as pyleo
+import sys
 import logging
 logger = logging.getLogger(__name__)
 # import cedarkit.utils.routing.paths
@@ -10,11 +11,13 @@ logger = logging.getLogger(__name__)
 
 try:
     from cedarkit.utils.routing.file_name_parsers import check_csv
+    from cedarkit.utils.routing.paths import check_location
     from cedarkit.utils.io.timeseries_utils import choose_data_source, remove_extra_index
     from cedarkit.utils.cli import setup_logging, log_line
 except ImportError:
     # Fallback: imports when running as a package
     from utils.routing.file_name_parsers import check_csv
+    from utils.routing.paths import check_location
     from utils.io.timeseries_utils import choose_data_source, remove_extra_index
     from utils.cli.logging import setup_logging, log_line
 
@@ -180,6 +183,20 @@ class DataVarConfig:
 
         data_path, _ = choose_data_source(self.proj_dir, config, data_source, data_type=data_type,
                                           var_data_csv=var_data_csv)
+        if data_path is None:
+            try:
+                loc_config = config.get_dynamic_attr('{var}', check_location(self.proj_dir))
+            except Exception:
+                loc_config = None
+            if data_type == 'real':
+                config_source = getattr(loc_config, 'raw_data', None) if loc_config is not None else None
+                config_source = config_source if config_source is not None else 'data'
+            elif data_type in ['surr', 'surrogate']:
+                config_source = getattr(loc_config, 'surrogate_data', None) if loc_config is not None else None
+                config_source = config_source if config_source is not None else 'surrogates'
+            else:
+                config_source = 'data'
+            return Path(self.proj_dir) / config_source
         data_path = Path(data_path).parent
         return data_path
 
@@ -308,4 +325,3 @@ class VarObject(DataVarConfig):
             # print('surr data', surr_data[[self.time_var, self.col_name]].head())
             self.ts = surr_data[[self.time_var, self.col_name]].copy()
             # print(self.ts.head())
-
