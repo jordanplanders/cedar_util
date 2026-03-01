@@ -36,8 +36,13 @@ def main():
         print('Project name is required.', file=sys.stderr)
         sys.exit(1)
 
+    if (Path(os.getcwd())/'dyads').exists():
+        proj_parent = Path(os.getcwd())/'dyads'
+    else:
+        proj_parent = Path(os.getcwd())
+
     proj_name = args.project
-    proj_dir = Path(os.getcwd()) / proj_name
+    proj_dir = proj_parent / proj_name
 
     # Load main config
     config_path = proj_dir / f'{args.config or "proj_config"}.yaml'
