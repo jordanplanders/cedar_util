@@ -2,11 +2,13 @@ import time
 import sys
 import os
 import pandas as pd
+import logging
 from pathlib import Path
 
 try:
     from cedarkit.core.project_config import load_config
     from cedarkit.utils.cli import get_parser
+    from cedarkit.utils.cli import setup_logging, log_line
     from cedarkit.utils.experiments import run_experiment, write_to_file
     from cedarkit.core.data_objects import CCMConfig
     from cedarkit.utils.routing import set_calc_path, set_output_path, check_location
@@ -16,13 +18,18 @@ except ImportError:
     # Fallback: imports when running as a package
     from core.project_config import load_config
     from utils.cli.arg_parser import get_parser
+    from utils.cli.logging import setup_logging, log_line
     from utils.experiments.ccm import run_experiment, write_to_file
     from utils.routing.paths import set_calc_path, set_output_path, check_location
     from utils.routing.file_name_parsers import check_csv
     from core.data_objects import CCMConfig
     from utils.io.gonogo import decide_file_handling
 
+logger = logging.getLogger(__name__)
+
 if __name__ == '__main__':
+    setup_logging()
+
     # grab parameter file
     parser = get_parser()
     args = parser.parse_args()
@@ -30,8 +37,7 @@ if __name__ == '__main__':
     if args.project is not None:
         proj_name = args.project
     else:
-        print('project name is required', file=sys.stdout, flush=True)
-        print('project name is required', file=sys.stderr, flush=True)
+        log_line(logger, 'project name is required', log_type='error')
         sys.exit(0)
 
     if args.proj_dir is not None:
@@ -48,8 +54,7 @@ if __name__ == '__main__':
         parameter_path = parameter_dir / check_csv(parameter_flag)
         parameter_df = pd.read_csv(parameter_path)
     else:
-        print('parameters are required', file=sys.stdout, flush=True)
-        print('parameters are required', file=sys.stderr, flush=True)
+        log_line(logger, 'parameters are required', log_type='error')
         sys.exit(0)
 
     flags = []
@@ -70,7 +75,7 @@ if __name__ == '__main__':
     end_ind = start_ind + num_inds
 
     if start_ind not in parameter_df.index:  #len(parameter_ds):
-        print('start_ind is not in available indexes', file=sys.stdout, flush=True)
+        log_line(logger, 'start_ind is not in available indexes', log_type='error')
         sys.exit(0)
 
     spec_config = {}
@@ -99,11 +104,11 @@ if __name__ == '__main__':
     loc = check_location(hpc_word='lplander')
     # if Path('/Users/jlanders').exists():
     if loc == 'local':
-        print('local', file=sys.stdout, flush=True)
+        log_line(logger, 'local', log_type='info')
 
         arg_tuples = []
         for time_offset, pset_d in enumerate(parameter_ds):
-            print(pset_d, file=sys.stdout, flush=True)
+            log_line(logger, pset_d, log_type='debug')
             pset_d= {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in pset_d.items()}
             if 'pset_id' not in pset_d:
                 if 'id' in pset_d:
@@ -115,14 +120,32 @@ if __name__ == '__main__':
 
             pset_exists, stem_exists = ccm_obj.check_run_exists()
             # this is strong existence criteria... if want to check for stem existence, use stem_exists
+            log_line(
+                logger,
+                (
+                    f"file-handling precheck: file={ccm_obj.file_name}, pset_exists={pset_exists}, "
+                    f"stem_exists={stem_exists}, override={args.override}, write={args.write}, "
+                    f"datetime_flag={args.datetime_flag}"
+                ),
+                log_type='info',
+            )
 
             run_continue, overwrite = decide_file_handling(args, pset_exists)
+            log_line(
+                logger,
+                f"file-handling decision: run_continue={run_continue}, overwrite={overwrite}, pset_id={ccm_obj.pset_id}",
+                log_type='info',
+            )
 
             if run_continue == False:
-                print(ccm_obj.file_name, '\n\tskipping: ', ccm_obj.pset_id, ccm_obj.col_var_id, ccm_obj.target_var_id, f'E={ccm_obj.E}, tau={ccm_obj.tau}, lag={ccm_obj.lag}', file=sys.stdout, flush=True)
+                log_line(
+                    logger,
+                    f"{ccm_obj.file_name} skipping: {ccm_obj.pset_id} {ccm_obj.col_var_id} {ccm_obj.target_var_id} E={ccm_obj.E}, tau={ccm_obj.tau}, lag={ccm_obj.lag}",
+                    log_type='info',
+                )
                 continue
 
-            print('how many cores:', cpu_count, file=sys.stdout, flush=True)
+            log_line(logger, f'how many cores: {cpu_count}', log_type='info')
             ccm_obj.cpus =cpu_count
             ccm_obj.self_predict = self_predict
 
@@ -140,14 +163,31 @@ if __name__ == '__main__':
         ccm_obj = CCMConfig(pset_d, config, proj_dir=proj_dir)
         pset_exists, stem_exists = ccm_obj.check_run_exists()
         # this is strong existence criteria... if want to check for stem existence, use stem_exists
+        log_line(
+            logger,
+            (
+                f"file-handling precheck: file={ccm_obj.file_name}, pset_exists={pset_exists}, "
+                f"stem_exists={stem_exists}, override={args.override}, write={args.write}, "
+                f"datetime_flag={args.datetime_flag}"
+            ),
+            log_type='info',
+        )
 
         run_continue, overwrite = decide_file_handling(args, pset_exists)
+        log_line(
+            logger,
+            f"file-handling decision: run_continue={run_continue}, overwrite={overwrite}, pset_id={ccm_obj.pset_id}",
+            log_type='info',
+        )
 
         if run_continue == False:
-            print(ccm_obj.file_name, '\n\tskipping: ', ccm_obj.pset_id, ccm_obj.col_var_id, ccm_obj.target_var_id,
-                  f'E={ccm_obj.E}, tau={ccm_obj.tau}, lag={ccm_obj.lag}', file=sys.stdout, flush=True)
+            log_line(
+                logger,
+                f"{ccm_obj.file_name} skipping: {ccm_obj.pset_id} {ccm_obj.col_var_id} {ccm_obj.target_var_id} E={ccm_obj.E}, tau={ccm_obj.tau}, lag={ccm_obj.lag}",
+                log_type='info',
+            )
         else:
-            print('how many cores:', cpu_count, file=sys.stdout, flush=True)
+            log_line(logger, f'how many cores: {cpu_count}', log_type='info')
             # candidate_tuple = (ccm_obj, cpu_count, self_predict,
             #                    start_ind + time_offset)  # (ccm_obj, time_offset, start_ind + time_offset, config, cpu_count, self_predict)
             # write_to_file(*run_experiment(candidate_tuple), overwrite=overwrite)
