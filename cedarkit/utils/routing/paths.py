@@ -37,6 +37,85 @@ def set_calc_path(args, proj_dir, config, second_suffix=''):
     return calc_location
 
 
+def _entry_format(cfg):
+    entry = getattr(cfg, "get_entry", lambda: None)()
+    return entry or None
+
+
+def _consolidated_format(cfg, entry):
+    override = getattr(cfg, "get_consolidated_format", lambda: None)()
+    if override:
+        return override
+    if entry == "csv":
+        return "parquet"
+    if entry == "sqlite":
+        return "sqlite"
+    return None
+
+
+def _fmt_block(cfg, block_name, fmt):
+    if fmt is None:
+        return None
+    if not hasattr(cfg, block_name):
+        return None
+    block = getattr(cfg, block_name)
+    if not hasattr(block, fmt):
+        return None
+    return getattr(block, fmt)
+
+
+def _join_dir_structure(base: Path, dir_structure: str) -> Path:
+    try:
+        # Avoid duplicating if dir_structure already starts with base leaf
+        if dir_structure and Path(dir_structure).parts and Path(dir_structure).parts[0] == base.name:
+            return base / Path(*Path(dir_structure).parts[1:])
+    except Exception:
+        pass
+    return base / dir_structure if dir_structure else base
+
+
+def resolve_intermediate_dir(calc_location: Path, cfg, fmt: str, include_dir_structure: bool = False) -> Path:
+    base = Path(calc_location) / "intermediate"
+    block = _fmt_block(cfg, "intermediate", fmt)
+    if block is None:
+        # legacy: fall back to output format block
+        block = _fmt_block(cfg, "output", fmt)
+    if block is None:
+        return base / fmt
+    fmt_dir = getattr(block, "dir", fmt) or fmt
+    fmt_base = base / fmt_dir
+    if not include_dir_structure:
+        return fmt_base
+    dir_structure = getattr(block, "dir_structure", "")
+    return _join_dir_structure(fmt_base, str(dir_structure) if dir_structure is not None else "")
+
+
+def resolve_consolidated_dir(calc_location: Path, cfg, fmt: str | None, *, include_dir_structure: bool = False) -> Path:
+    if fmt is None or fmt == "auto":
+        entry = _entry_format(cfg)
+        fmt = _consolidated_format(cfg, entry) or entry or "sqlite"
+    elif fmt == "sqlite":
+        # Honor consolidated format overrides even when sqlite is requested.
+        entry = _entry_format(cfg)
+        fmt = _consolidated_format(cfg, entry) or fmt
+
+    output_sub = None
+    try:
+        output_sub = getattr(cfg, "local").output_dir
+    except Exception:
+        output_sub = "output"
+    base = Path(calc_location) / str(output_sub)
+    block = _fmt_block(cfg, "output", fmt)
+    if block is None:
+        return base / fmt
+    fmt_dir = getattr(block, "dir", fmt) or fmt
+    fmt_base = base / fmt_dir
+    if not include_dir_structure:
+        return fmt_base
+    dir_structure = getattr(block, "dir_structure", "")
+    return _join_dir_structure(fmt_base, str(dir_structure) if dir_structure is not None else "")
+
+
 def set_output_path(args, calc_location, config):
     output_dir = None
     if args is not None:
@@ -52,6 +131,56 @@ def set_output_path(args, calc_location, config):
 
 
     return output_dir
+
+
+def sqlite_paths(proj_dir, config, *, run_id=None, calc_location=None, output_dir=None, ensure=True):
+    import warnings
+    warnings.warn(
+        "sqlite_paths is deprecated; use resolve_intermediate_dir/resolve_consolidated_dir instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    if output_dir is None:
+        if calc_location is None:
+            calc_location = set_calc_path(None, proj_dir, config, second_suffix="")
+        output_dir = set_output_path(None, calc_location, config)
+
+    if not hasattr(config, "output") or not hasattr(config.output, "sqlite"):
+        raise AttributeError("config.output.sqlite is required to build sqlite paths.")
+
+    entry = _entry_format(config)
+    consolidated_fmt = _consolidated_format(config, entry) or "sqlite"
+    if hasattr(config, "intermediate") and hasattr(config.intermediate, "sqlite"):
+        sqlite_dir = resolve_intermediate_dir(Path(calc_location), config, "sqlite", include_dir_structure=True)
+    else:
+        # legacy behavior: run dbs under output dir
+        sqlite_cfg = config.output.sqlite
+        dir_structure = getattr(sqlite_cfg, "dir_structure", "run_dbs")
+        sqlite_dir = Path(output_dir) / dir_structure
+    if ensure:
+        sqlite_dir.mkdir(parents=True, exist_ok=True)
+
+    sqlite_cfg = config.output.sqlite
+    collector_name = getattr(sqlite_cfg, "consolidated_db", None)
+    if not collector_name:
+        collector_name = getattr(sqlite_cfg, "file_format", "collector")
+    collector_name = collector_name or "collector"
+    consolidated_dir = resolve_consolidated_dir(Path(calc_location), config, consolidated_fmt)
+    if ensure:
+        consolidated_dir.mkdir(parents=True, exist_ok=True)
+    collector_path = consolidated_dir / f"{collector_name}.sqlite"
+
+    run_db_path = None
+    if run_id is not None:
+        run_cfg = getattr(getattr(config, "intermediate", None), "sqlite", sqlite_cfg)
+        file_format = getattr(run_cfg, "file_format", "run_{run_id}")
+        try:
+            run_file = template_replace(file_format, {"run_id": run_id}, return_replaced=False)
+        except Exception:
+            run_file = file_format.format(run_id=run_id)
+        run_db_path = sqlite_dir / f"{run_file}.sqlite"
+
+    return sqlite_dir, collector_path, run_db_path
 
 
 def set_grp_path(output_path, d, config=None, source='csv', grp_level='grp_dir_structure', make_grp=True):
