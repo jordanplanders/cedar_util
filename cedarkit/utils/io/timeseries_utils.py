@@ -346,15 +346,21 @@ def choose_data_source(proj_dir, config, data_source, var_data_csv=None, data_ty
     loc_config = config.get_dynamic_attr('{var}', check_location(proj_dir))
     if data_type == 'real':
         try:
-            config_source = loc_config.raw_data
+            config_source = loc_config.raw_data_dir
         except:
-            config_source = 'data'
+            try:
+                config_source = loc_config.raw_data
+            except:
+                config_source = 'data'
         alternative_source = 'master_data'
     elif data_type in ['surr', 'surrogate']:
         try:
-            config_source = loc_config.surrogate_data
+            config_source = loc_config.surr_data_dir
         except:
-            config_source = 'surrogates'
+            try:
+                config_source = loc_config.surrogate_data
+            except:
+                config_source = 'surrogates'
         alternative_source = 'master_surrogates'
 
     data_path, var_data = None, None
