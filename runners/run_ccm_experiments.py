@@ -32,7 +32,11 @@ if __name__ == '__main__':
         print('project name is required', file=sys.stderr, flush=True)
         sys.exit(0)
 
-    proj_dir = Path(os.getcwd()) / proj_name
+    if args.proj_dir is not None:
+        proj_dir = Path(args.proj_dir) / proj_name
+    else:
+        proj_dir = Path(os.getcwd()) / proj_name
+
     gen_config = 'proj_config'
     config = load_config(proj_dir / f'{gen_config}.yaml')
 
