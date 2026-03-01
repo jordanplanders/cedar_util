@@ -50,6 +50,21 @@ class ProjectConfig:
         else:
             raise TypeError(f"{list_name} is not a list.")
 
+    # Routing helpers (runtime-only flags; not persisted to YAML)
+    def set_entry(self, entry: str):
+        """Set entry mode for routing (e.g., 'sqlite' or 'csv')."""
+        self._entry = str(entry) if entry is not None else None
+
+    def get_entry(self):
+        return getattr(self, "_entry", None)
+
+    def set_consolidated_format(self, fmt: str):
+        """Override consolidated output format (default: parquet for csv entry)."""
+        self._consolidated_format = str(fmt) if fmt is not None else None
+
+    def get_consolidated_format(self):
+        return getattr(self, "_consolidated_format", None)
+
     def to_dict(self):
         result = {}
         for key, value in self.__dict__.items():
@@ -110,7 +125,7 @@ def _find_var_file(var_id: str, base_dir: Path) -> Path:
     raise FileNotFoundError(f"Variable file not found for '{var_id}' in {base_dir}.")
 
 
-def load_config(yaml_file, var_dir_name: str = "data_var_configs"):
+def load_config(yaml_file, top_level_yaml=None, var_dir_name: str = "data_var_configs"):
     ''''
     Load project configuration from a YAML file, including data variable definitions.
     Parameters:
@@ -129,7 +144,14 @@ def load_config(yaml_file, var_dir_name: str = "data_var_configs"):
     cfg = _load_yaml(yaml_path)
 
     palette_dict = cfg.pop("pal", {})
-    pal_dir = (yaml_path.parent.parent / var_dir_name).resolve()
+    if top_level_yaml is not None:
+        pal_dir = top_level_yaml.parent /var_dir_name
+    else:
+        pal_dir = (yaml_path.parent.parent / var_dir_name).resolve()
+
+        if (pal_dir / 'palette.yaml').exists() is False:
+            pal_dir =  yaml_path.parent.parent.parent / var_dir_name
+
     if (pal_dir / 'palette.yaml').exists():
         palette_dict = _load_yaml(pal_dir / 'palette.yaml')['pal']
 
@@ -210,5 +232,4 @@ def add_var(config, var_type, var_id, var_meta):
 
     # Flat vars mapping
     config.setdefault("vars", {})[var_type] = var_block["var"]
-
 
