@@ -8,13 +8,15 @@ try:
     from cedarkit.utils.cli import get_parser
     from cedarkit.core.project_config import load_config
     from cedarkit.utils.io import setup_conversion_from_calc_grp, package_calc_grp_results_to_parquet
-    from cedarkit.utils.routing import set_calc_path, set_output_path
+    from cedarkit.utils.routing import set_calc_path
+    from cedarkit.utils.routing.paths import resolve_consolidated_dir
     from cedarkit.utils.routing import check_csv
 except ImportError:
     from utils.cli.arg_parser import get_parser
     from core.project_config import load_config
     from utils.io.parquet import setup_conversion_from_calc_grp, package_calc_grp_results_to_parquet
-    from utils.routing.paths import set_calc_path, set_output_path
+    from utils.routing.paths import set_calc_path
+    from utils.routing.paths import _resolve_consolidated_dir
     from utils.routing.file_name_parsers import check_csv
     # Fallback: imports when running as a package
     # from utils.cli.arg_parser import get_parser
@@ -69,7 +71,12 @@ if __name__ == "__main__":
         print('project name is required', file=sys.stderr, flush=True)
         sys.exit(0)
 
-    proj_dir = Path(os.getcwd()) / proj_name
+    if args.proj_dir is not None:
+        proj_dir = Path(args.proj_dir) / proj_name
+    else:
+        proj_dir = Path(os.getcwd()) / proj_name
+    print('Project directory:', proj_dir, file=sys.stdout, flush=True)
+
     config = load_config(proj_dir / 'proj_config.yaml')
 
     second_suffix = ''
@@ -77,7 +84,8 @@ if __name__ == "__main__":
         second_suffix = f'_{int(time.time() * 1000)}'
 
     calc_location = set_calc_path(args, proj_dir, config, second_suffix)
-    output_dir = set_output_path(args, calc_location, config)
+    output_dir = resolve_consolidated_dir(calc_location, config, "parquet")
+    print('output_dir:', output_dir, file=sys.stdout, flush=True)
 
     calc_grps_csv = calc_location / check_csv(config.csvs.calc_grps)
     calc_grps_df = pd.read_csv(calc_grps_csv)
@@ -110,18 +118,20 @@ if __name__ == "__main__":
                 print(f"\tcalc_grp {ind}", calc_grp_d, file=sys.stdout, flush=True)
                 try:
                     write_paths, existing_paths = package_calc_grp_results_to_parquet(
-                        **setup_conversion_from_calc_grp(output_dir, config, calc_grp_d))
+                        **setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, consolidated_type='parquet', intermediate_type = 'csv'))
+                    print(f"\t\tWrote to {write_paths}, existing paths: {existing_paths}", file=sys.stdout, flush=True)
                 except Exception as e:
-                    print('grp error:', e)
+                    print('grp error:', e, file=sys.stderr, flush=True)
     else:
         if args.inds is not None:
             ind = int(args.inds[-1])
             calc_grp_d = calc_grps_df.iloc[ind].to_dict()
             try:
                 write_paths, existing = package_calc_grp_results_to_parquet(
-                    **setup_conversion_from_calc_grp(output_dir, config, calc_grp_d))
+                    **setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, consolidated_type='parquet', intermediate_type = 'csv'))
+                print(f"Wrote to {write_paths}, existing paths: {existing}", file=sys.stdout, flush=True)
             except Exception as e:
-                print('grp error:', e)
+                print('grp error:', e, file=sys.stderr, flush=True)
         else:
             existing, writes = [], []
             for ind, calc_grp in calc_grps_df.iterrows():
@@ -129,9 +139,8 @@ if __name__ == "__main__":
                 print(f"calc_grp {ind}", calc_grp_d, file=sys.stdout, flush=True)
                 try:
                     write_paths, existing_paths = package_calc_grp_results_to_parquet(
-                        **setup_conversion_from_calc_grp(output_dir, config, calc_grp_d))
+                        **setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, consolidated_type='parquet', intermediate_type = 'csv'))
                     existing.extend(existing_paths)
                     writes.extend(write_paths)
                 except Exception as e:
                     print('grp error:', e, file=sys.stderr, flush=True)
-
