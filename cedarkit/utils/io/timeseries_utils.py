@@ -1,6 +1,7 @@
 from pathlib import Path
 import pandas as pd
 import os
+import sys
 import logging
 logger = logging.getLogger(__name__)
 
@@ -358,27 +359,32 @@ def choose_data_source(proj_dir, config, data_source, var_data_csv=None, data_ty
 
     data_path, var_data = None, None
 
+    def _read_csv_try(path):
+        try:
+            return pd.read_csv(path)
+        except (FileNotFoundError, OSError):
+            return None
+
     if 'master' in data_source:
         data_source2 = config_source
         data_source1 = alternative_source
-        try:
-            data_path = proj_dir.parent / data_source1 / f'{var_data_csv}.csv'
-            var_data = pd.read_csv(data_path)
-        except:
+        data_path = proj_dir.parent / data_source1 / f'{var_data_csv}.csv'
+        var_data = _read_csv_try(data_path)
+        if var_data is None:
             data_path = proj_dir / data_source2 / f'{var_data_csv}.csv'
-            var_data = pd.read_csv(data_path)
+            var_data = _read_csv_try(data_path)
     else:
         data_source1 = config_source
         data_source2 = alternative_source
-        try:
-            data_path = proj_dir / data_source1 / f'{var_data_csv}.csv'
-            var_data = pd.read_csv(data_path)
-        except:
+        data_path = proj_dir / data_source1 / f'{var_data_csv}.csv'
+        var_data = _read_csv_try(data_path)
+        if var_data is None:
             data_path = proj_dir.parent / data_source2 / f'{var_data_csv}.csv'
-            var_data = pd.read_csv(data_path)
+            var_data = _read_csv_try(data_path)
 
     if var_data is None:
-        print(f'Error reading {data_type} data for {var_data_csv} from {data_source1}, {data_source2}', file=sys.stderr, flush=True)
+        log_line(logger, f"Error reading {data_type} data for {var_data_csv} from {data_source1}, {data_source2}",
+                 log_type="error")
         return None, None
 
     var_data = remove_extra_index(var_data)
