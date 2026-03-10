@@ -45,8 +45,13 @@ if __name__ == '__main__':
     else:
         proj_dir = Path(os.getcwd()) / proj_name
 
+    print(f'proj_dir: {proj_dir}', file=sys.stderr, flush=True)
+
     gen_config = 'proj_config'
     config = load_config(proj_dir / f'{gen_config}.yaml')
+    if hasattr(config, "set_entry"):
+        config.set_entry(args.entry)
+        log_line(logger, f"Routing entry set to: {args.entry}", log_type='info')
 
     if args.parameters is not None:
         parameter_flag = args.parameters
