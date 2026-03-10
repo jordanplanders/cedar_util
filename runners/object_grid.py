@@ -3,7 +3,9 @@ import sys
 import os
 import numpy as np
 import gc
+import re
 from pathlib import Path
+import pyarrow as pa
 
 
 pd.option_context('mode.use_inf_as_na', True)
@@ -34,6 +36,72 @@ except ImportError:
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+_REL_SEPS = [r"\s*->\s*", r"\s*→\s*", r"\s*=>\s*", r"\s+causes\s+", r"\s+influences\s+"]
+
+
+def _parse_relation_pair(rel):
+    if rel is None:
+        return None, None
+    rel = str(rel).strip()
+    for sep in _REL_SEPS:
+        parts = re.split(sep, rel, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) == 2:
+            lhs, rhs = parts[0].strip(), parts[1].strip()
+            if lhs and rhs:
+                return lhs, rhs
+    m = re.match(r"^\s*(.*?)\s+(causes|influences)\s+(.*?)\s*$", rel, flags=re.IGNORECASE)
+    if m:
+        return m.group(1).strip(), m.group(3).strip()
+    return None, None
+
+
+def _filter_table_to_config_vars(table, allowed_vars):
+    if table is None or table.num_rows == 0:
+        return table
+
+    allowed = {str(v).strip().lower() for v in allowed_vars if v is not None}
+    if len(allowed) != 2:
+        return table
+
+    df = table.to_pandas()
+    if len(df) == 0:
+        return table
+
+    if "forcing" in df.columns and "responding" in df.columns:
+        lhs = df["forcing"].astype("string").str.strip().str.lower()
+        rhs = df["responding"].astype("string").str.strip().str.lower()
+    else:
+        rel_col = "relation" if "relation" in df.columns else ("relation_0" if "relation_0" in df.columns else None)
+        if rel_col is None:
+            return table
+        pairs = df[rel_col].apply(_parse_relation_pair)
+        lhs = pairs.apply(lambda x: (x[0] if x is not None else None))
+        rhs = pairs.apply(lambda x: (x[1] if x is not None else None))
+        lhs = lhs.astype("string").str.strip().str.lower()
+        rhs = rhs.astype("string").str.strip().str.lower()
+
+    mask = lhs.isin(allowed) & rhs.isin(allowed) & (lhs != rhs)
+    filtered_df = df[mask].copy()
+    return pa.Table.from_pandas(filtered_df, preserve_index=False)
+
+
+def _apply_relationship_safeguard(output_obj, allowed_vars, name):
+    if output_obj is None:
+        return
+    output_obj.get_table()
+    before = 0 if output_obj._full is None else output_obj._full.num_rows
+    output_obj._full = _filter_table_to_config_vars(output_obj._full, allowed_vars)
+    after = 0 if output_obj._full is None else output_obj._full.num_rows
+    if before != after:
+        log_line(
+            logger,
+            f"Filtered {name} rows by config vars {sorted(list(allowed_vars))}: {before} -> {after}",
+            indent=0,
+            log_type="warning",
+        )
+
 
 def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, existing_output=None, calc_delta_rho_table=True,
                    aggregate_libsize_table=True, calc_delta_rho_full=True):
@@ -109,19 +177,23 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
         output_collections.append(output_col)
 
     new_output_col = OutputCollection(in_table=output_collections, grp_specs=test_grp.get_group_config(), tmp_dir=tmp_dir)
+    e_val = grp_info.get("E")
+    tau_val = grp_info.get("tau")
+    et_tag = f"E{e_val}_tau{tau_val}"
+
     if aggregate_libsize_table is True:
         libsize_aggregated_path = existing_output.libsize_aggregated.path if existing_output is not None else None
-        if libsize_aggregated_path is not None:
+        if libsize_aggregated_path is not None and et_tag in str(libsize_aggregated_path):
             new_output_col.libsize_aggregated.path = libsize_aggregated_path
 
     if calc_delta_rho_table is True:
         delta_rho_path = existing_output.delta_rho_stats.path if existing_output is not None else None
-        if delta_rho_path is not None:
+        if delta_rho_path is not None and et_tag in str(delta_rho_path):
             new_output_col.delta_rho_stats.path = delta_rho_path
 
     if calc_delta_rho_full is True:
         delta_rho_path_full = existing_output.delta_rho_full.path if existing_output is not None else None
-        if delta_rho_path_full is not None:
+        if delta_rho_path_full is not None and et_tag in str(delta_rho_path_full):
             new_output_col.delta_rho_full.path = delta_rho_path_full
 
     if new_output_col.libsize_aggregated is None:
@@ -139,23 +211,29 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
             new_output_col.delta_rho_full = existing_output.delta_rho_full
             new_output_col.delta_rho_full.get_table()
 
+    # Safeguard: keep only rows whose relationship is between the two vars declared in proj_config.
+    allowed_vars = {config.col.var, config.target.var}
+    _apply_relationship_safeguard(new_output_col.delta_rho_stats, allowed_vars, "delta_rho_stats")
+    _apply_relationship_safeguard(new_output_col.delta_rho_full, allowed_vars, "delta_rho_full")
+    _apply_relationship_safeguard(new_output_col.libsize_aggregated, allowed_vars, "libsize_aggregated")
+
     try:
         gb = new_output_col.libsize_aggregated.surrogate.group_by(["surr_var"]).aggregate([("surr_num", "count_distinct")])
         df = gb.to_pandas()
 
-        new_output_col.delta_rho_stats.write_table()
+        new_output_col.delta_rho_stats.write_table(tag=f"E{e_val}_tau{tau_val}__delta_rho_stats")
         # print('\twriting delta rho stats table', file=sys.stdout, flush=True)
         log_line(logger, '\twriting delta rho stats table',
                  indent=0,
                  log_type="info")
 
-        new_output_col.delta_rho_full.write_table()
+        new_output_col.delta_rho_full.write_table(tag=f"E{e_val}_tau{tau_val}__delta_rho_full")
         # print('\twriting delta rho full table', file=sys.stdout, flush=True)
         log_line(logger, '\twriting delta rho full table',
                  indent=0,
                  log_type="info")
 
-        new_output_col.libsize_aggregated.write_table()
+        new_output_col.libsize_aggregated.write_table(tag=f"E{e_val}_tau{tau_val}__libsize_aggregated")
         # print('\twriting libsize aggregated table', file=sys.stdout, flush=True)
         log_line(logger, '\twriting libsize aggregated table',
                  indent=0,
@@ -176,8 +254,8 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
     cell_obj = GridCell(E_i, tau_i, new_output_col)
     del new_output_col
 
-    cell_obj.row_labels.append(f'E={E}')
-    cell_obj.col_labels.append(f'tau={tau}')
+    cell_obj.row_labels.append(f"E={grp_info['E']}")
+    cell_obj.col_labels.append(f"tau={grp_info['tau']}")
 
     for _, row in df.iterrows():
         cell_obj.annotations.append(f"{row['surr_var']}: n={row['surr_num_count_distinct']}")
@@ -357,5 +435,3 @@ if __name__ == "__main__":
     #     print(f"Processed and saved E={E}, tau={tau} to {tmp_dir}.", file=sys.stdout, flush=True)
     # else:
     #     print(f"Skipping E={E}, tau={tau} because already processed.", file=sys.stdout, flush=True)
-
-
