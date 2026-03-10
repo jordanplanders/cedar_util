@@ -16,12 +16,20 @@ try:
     from cedarkit.utils.routing import template_replace, parse_surr_label
     from cedarkit.utils.tables import drop_duplicates, make_uid
     from cedarkit.utils.cli import setup_logging, log_line
-    from cedarkit.utils.routing.paths import resolve_consolidated_dir, resolve_intermediate_dir
+    from cedarkit.utils.routing.paths import (
+        resolve_consolidated_dir,
+        resolve_intermediate_dir,
+        set_output_path,
+    )
 except ImportError:
     from utils.routing.file_name_parsers import template_replace, parse_surr_label
     from utils.tables.parquet_tools import drop_duplicates, make_uid
     from utils.cli.logging import setup_logging, log_line
-    from utils.routing.paths import _resolve_consolidated_dir, _resolve_intermediate_dir
+    from utils.routing.paths import (
+        _resolve_consolidated_dir,
+        _resolve_intermediate_dir,
+        set_output_path,
+    )
 
 
 def setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, output_dir = None, intermediate_type = 'csv', consolidated_type='parquet'):
@@ -41,10 +49,7 @@ def setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, output_dir
     parts_d = calc_grp_d.copy()
     # construct path pattern
     fallback_E_tau_grp_pattern = 'knn_{knn}/tp_{Tp}/{col_var_id}_{target_var_id}/E{E}_tau{tau}'
-    intermediate_output = resolve_intermediate_dir(calc_location, config, intermediate_type)
-    print('intermediate_output', intermediate_output, file=sys.stdout, flush=True)
     E_tau_grp_pattern = config.output.parquet.dir_structure if config is not None else fallback_E_tau_grp_pattern
-    print('E_tau_grp_pattern', E_tau_grp_pattern,parts_d, file=sys.stdout, flush=True)
     # try:
     #     output_sub = config.output.dir
     # except:
@@ -57,7 +62,24 @@ def setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, output_dir
     parts_d['col_var_id']=config.col.var_id
     parts_d['target_var_id']=config.target.var_id
 
-    e_tau_dir_read = intermediate_output/template_replace(E_tau_grp_pattern, parts_d, return_replaced=False)
+    intermediate_output = resolve_intermediate_dir(calc_location, config, intermediate_type)
+    e_tau_dir_read = intermediate_output / template_replace(E_tau_grp_pattern, parts_d, return_replaced=False)
+
+    # Backward-compat: some runs wrote CSVs under calc_refactor (output_dir) instead of intermediate/csv.
+    # If intermediate is missing for this group, fall back to legacy output root.
+    if (not e_tau_dir_read.exists()) or (not e_tau_dir_read.is_dir()):
+        legacy_output = output_dir or set_output_path(None, Path(calc_location), config)
+        legacy_dir = Path(legacy_output) / template_replace(E_tau_grp_pattern, parts_d, return_replaced=False)
+        if legacy_dir.exists() and legacy_dir.is_dir():
+            print(
+                f"intermediate path missing, falling back to legacy output path: {legacy_dir}",
+                file=sys.stdout,
+                flush=True,
+            )
+            e_tau_dir_read = legacy_dir
+
+    print('intermediate_output', intermediate_output, file=sys.stdout, flush=True)
+    print('E_tau_grp_pattern', E_tau_grp_pattern, parts_d, file=sys.stdout, flush=True)
     print('e_tau_dir_read', e_tau_dir_read, file=sys.stdout, flush=True)
     # directory of future parquet output
     consolidated_output_location = resolve_consolidated_dir(calc_location, config, consolidated_type)
@@ -192,7 +214,11 @@ def package_calc_grp_results_to_parquet(
                 continue
 
             pset_id = mfile.group(1)
-            surr_var, surr_num = parse_surr_label(surr_label, col_var, target_var)
+            parsed_surr = parse_surr_label(surr_label, col_var, target_var)
+            if parsed_surr is None:
+                print(f"\tSkipping {fname} because surrogate label could not be parsed", file=sys.stderr, flush=True)
+                continue
+            surr_var, surr_num = parsed_surr
             if write_path_file_valid is True:
                 surr_df_reduced = recorded_parquet_df[(recorded_parquet_df['surr_var']==surr_var) & (recorded_parquet_df['surr_num']==surr_num)]
                 if len(surr_df_reduced) > 0:
