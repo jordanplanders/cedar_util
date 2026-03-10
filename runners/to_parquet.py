@@ -111,6 +111,15 @@ if __name__ == "__main__":
 
             query_str = ' and '.join([f'{k} == {repr(v)}' for k, v in E_tau_grp_d.items()])
             calc_grps_df2 = calc_grps_df.query(query_str).reset_index(drop=True)
+            dedup_keys = [k for k in ['E', 'tau', 'knn', 'Tp', 'lag'] if k in calc_grps_df2.columns]
+            if len(dedup_keys) > 0:
+                before = len(calc_grps_df2)
+                calc_grps_df2 = calc_grps_df2.drop_duplicates(subset=dedup_keys).reset_index(drop=True)
+                print(
+                    f"Deduped calc_grps_df2 on {dedup_keys}: {before} -> {len(calc_grps_df2)} rows",
+                    file=sys.stdout,
+                    flush=True,
+                )
             print(f"Filtered calc_grps_df to {len(calc_grps_df2)} rows matching {E_tau_grp_d}", file=sys.stdout, flush=True)
 
             for ind2, calc_grp in calc_grps_df2.iterrows():
@@ -134,6 +143,15 @@ if __name__ == "__main__":
                 print('grp error:', e, file=sys.stderr, flush=True)
         else:
             existing, writes = [], []
+            dedup_keys = [k for k in ['E', 'tau', 'knn', 'Tp', 'lag'] if k in calc_grps_df.columns]
+            if len(dedup_keys) > 0:
+                before = len(calc_grps_df)
+                calc_grps_df = calc_grps_df.drop_duplicates(subset=dedup_keys).reset_index(drop=True)
+                print(
+                    f"Deduped calc_grps_df on {dedup_keys}: {before} -> {len(calc_grps_df)} rows",
+                    file=sys.stdout,
+                    flush=True,
+                )
             for ind, calc_grp in calc_grps_df.iterrows():
                 calc_grp_d = calc_grp.to_dict()
                 print(f"calc_grp {ind}", calc_grp_d, file=sys.stdout, flush=True)
