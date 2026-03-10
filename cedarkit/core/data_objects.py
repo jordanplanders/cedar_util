@@ -1729,7 +1729,7 @@ class CCMConfig(CMConfigBase):
                     args = SimpleNamespace(**vars(args))
                 else:
                     raise TypeError(f'Unsupported args type for run_ccm: {type(args)}')
-            print('args provided for CCM run:', args)
+            print('args provided for CCM run:', args, file=sys.stderr, flush=True)
 
         pset_exists, stem_exists = self.check_run_exists()
         overwrite_flag = overwrite if overwrite is not None else self.overwrite
@@ -1738,6 +1738,7 @@ class CCMConfig(CMConfigBase):
         # this is strong existence criteria... if want to check for stem existence, use stem_exists
 
         run_continue, overwrite = decide_file_handling(args, pset_exists)
+        print(f'CCM run file handling decision - pset_exists: {pset_exists}, overwrite: {overwrite}, run_continue: {run_continue}', file=sys.stderr, flush=True)
 
         ccm_out_df, df_path = run_experiment((self, script, ind))
 
