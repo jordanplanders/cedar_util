@@ -1,6 +1,7 @@
 import copy
 import os
 import shutil
+from pathlib import Path
 
 import logging
 logger = logging.getLogger(__name__)
@@ -8,9 +9,33 @@ logger = logging.getLogger(__name__)
 try:
     from cedarkit.utils.workflow import get_assessed_param_picks
     from cedarkit.utils.cli import setup_logging, log_line
+    from cedarkit.core.project_config import load_config
+    from cedarkit.utils.routing import set_calc_path
+    from cedarkit.utils.routing.paths import resolve_consolidated_dir, resolve_intermediate_dir
 except ImportError:
     from utils.workflow.parameter_utils import get_assessed_param_picks
     from utils.cli.logging import setup_logging, log_line
+    from core.project_config import load_config
+    from utils.routing.paths import set_calc_path, resolve_consolidated_dir, resolve_intermediate_dir
+
+
+def _resolve_check_output_location(proj_dir, output_location, config, source, check):
+    source = source or 'csv'
+    if source not in ('csv', 'parquet'):
+        raise ValueError(f"Unsupported source '{source}'. Expected 'csv' or 'parquet'.")
+
+    check = check or 'intermediate'
+    if check not in ('intermediate', 'consolidated'):
+        raise ValueError(f"Unsupported check '{check}'. Expected 'intermediate' or 'consolidated'.")
+
+    cfg = config
+    if cfg is None:
+        cfg = load_config(Path(proj_dir) / 'proj_config.yaml')
+
+    calc_location = set_calc_path(None, Path(proj_dir), cfg)
+    if check == 'intermediate':
+        return resolve_intermediate_dir(calc_location, cfg, source)
+    return resolve_consolidated_dir(calc_location, cfg, source)
 
 def make_slurm_script(E_grp, new_param_file, new_file_name, slurm_dir, source_file_path, default_calc_length=25,
                       max_time_ask=240, buffer_percent=1.5, ntasks=36, append=False):
@@ -70,7 +95,7 @@ def make_slurm_script(E_grp, new_param_file, new_file_name, slurm_dir, source_fi
 
 def gen_parameters_slurm2(proj_dir, output_location, comb_df, min_num_to_run=8, config=None,parameter_dir=None, surr=False, surr_num=201, groupby_var = None, testmode=True,
                            tp_vals = [1], knn_vals = [20], suffix = '', append=False, proj_prefix= 'eevw', default_calc_length=28,surr_vars=None,sample=150,return_combined=False,
-                                          source=None, ntasks=42, max_time_ask=300, verbose= False):
+                                          source='csv', check='intermediate', ntasks=42, max_time_ask=300, verbose= False):
     """
     Generate slurm scripts for running CCM parameters based on combinations in comb_df.
 
@@ -96,8 +121,10 @@ def gen_parameters_slurm2(proj_dir, output_location, comb_df, min_num_to_run=8, 
 
     """
     print('gen_parameters_slurm2', groupby_var)
+    check_output_location = _resolve_check_output_location(proj_dir, output_location, config, source, check)
+    print(f'checking existing outputs in: {check_output_location} (source={source}, check={check})')
     # calls get_assessed_param_picks internally
-    combined_df, messages = get_assessed_param_picks(proj_dir, output_location, comb_df,config=config,parameter_dir=parameter_dir, surr=surr, surr_num=surr_num, groupby_vars = copy.copy(groupby_var), testmode=testmode,
+    combined_df, messages = get_assessed_param_picks(proj_dir, check_output_location, comb_df,config=config,parameter_dir=parameter_dir, surr=surr, surr_num=surr_num, groupby_vars = copy.copy(groupby_var), testmode=testmode,
                             tp_vals = tp_vals, knn_vals = knn_vals,append=append,surr_vars=surr_vars, verbose= verbose, source=source)
     # print('combined',combined_df.head())
     # calls make_slurm_script internally
