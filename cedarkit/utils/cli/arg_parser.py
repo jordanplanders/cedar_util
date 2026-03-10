@@ -47,6 +47,13 @@ def get_parser():
                         type=str, help="Specify any additional flags")
     parser.add_argument('--cpus', dest='cpus', type=int, help="Specify number of CPUs to use")
     parser.add_argument('--proj_dir', dest='proj_dir', type=str, help="Specify number of CPUs to use")
+    parser.add_argument(
+        '--entry',
+        dest='entry',
+        choices=['csv', 'sqlite'],
+        default='csv',
+        help="Routing entry format for run outputs (default: csv)",
+    )
 
     return parser
 
@@ -86,5 +93,4 @@ def parse_flags(args, default_percent_threshold=.05, default_function_flag='bind
         res_flag = default_res_flag
 
     return percent_threshold, function_flag, res_flag, second_suffix
-
 
