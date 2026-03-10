@@ -108,7 +108,9 @@ def parse_surr_label(token: str, x_var: str, y_var: str):
         y_var (str): Name of the second variable (e.g., 'TSI').
 
     Returns:
-        (surr_var, surr_num) where surr_var ∈ {'neither', x_var, y_var, 'both'}
+        (surr_var, surr_num) where surr_var is inferred from the token.
+        Recognizes 'neither', 'both', x_var/y_var specific labels, and generic
+        labels like '<var><digits>' (e.g., 'temp17').
 
     Used by:
         package_calc_grp_results_to_parquet
@@ -121,17 +123,30 @@ def parse_surr_label(token: str, x_var: str, y_var: str):
         return "neither", 0
     if "both" in lab_l:
         return "both", 99999 # use a large number to indicate both but without a specific index
-    if xv in lab_l:
-        num = lab_l.replace(xv, '').strip()
-        if num.isdigit():
-            num = int(num)
-        return x_var, num
-    if yv in lab_l:
-        num = lab_l.replace(yv, '').strip()
-        if num.isdigit():
-            num = int(num)
-        return y_var, num
-    print(f"Warning: Unrecognized suffix token '{token}', treating as 'neither0'")
+
+    for needle, out_var in ((xv, x_var), (yv, y_var)):
+        m = re.fullmatch(rf'\s*({re.escape(needle)})(\d+)\s*', lab_l)
+        if m:
+            return out_var, int(m.group(2))
+
+    # Generic fallback for labels that don't match x_var/y_var exactly, e.g. temp17.
+    # This keeps packaging robust for legacy/misaligned naming.
+    m_generic = re.fullmatch(r"\s*([A-Za-z][\w-]*)(\d+)\s*", token)
+    if m_generic:
+        return m_generic.group(1), int(m_generic.group(2))
+
+    # if xv in lab_l:
+    #     num = lab_l.replace(xv, '').strip()
+    #     if num.isdigit():
+    #         num = int(num)
+    #     return x_var, num
+    # if yv in lab_l:
+    #     num = lab_l.replace(yv, '').strip()
+    #     if num.isdigit():
+    #         num = int(num)
+    #     return y_var, num
+    print(f"Warning: Unrecognized suffix token '{token}', skipping")
+    return None
 
 
 def extract_from_pattern(filename: str, pattern_str: str):
