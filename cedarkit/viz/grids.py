@@ -169,6 +169,13 @@ class GridPlot:
     def tidy_rows(self, add_hline=None, ylim_by='central', supylabels=None, keep_ylabels=False,
                   supylabel_offset=0.04, keep_titles=False, title_pad=10, rlabel_pad=10, llabel_pad=10, title_rows=[0], titley=1):
 
+        if len(self.subfigs) == 0:
+            log_line(logger, "No subfigures available; skipping tidy_rows.", indent=0, log_type="warning")
+            return
+        if len(self.subfigs[0].axes) == 0:
+            log_line(logger, "No axes available; skipping tidy_rows.", indent=0, log_type="warning")
+            return
+
         maxcols = max([col_check_key[1] for col_check_key in self.ax_grid_types.keys()])
 
         y_tick_list = []
@@ -953,5 +960,4 @@ class SummaryGrid(GridPlot):
             #     ax.set_xlabel('')
             #     ax.set_xticklabels([])
             #     ax.set_xticks([])
-
 
