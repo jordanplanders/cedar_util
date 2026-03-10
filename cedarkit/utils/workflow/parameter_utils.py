@@ -47,7 +47,7 @@ def remove_already_completed(pset, output_location, performance_consideration=Fa
             level = 'dir_structure_csv'
             grp_path = set_grp_path(output_location, pset, config=config, make_grp=False, source=source)
             if grp_path.exists() is False:
-                print('\tGrp does not exist', grp_path)
+                # print('\tGrp does not exist', grp_path)
                 return [pset]
             calc_dir_list = os.listdir(grp_path)
             # print('calc_dir_list', calc_dir_list)
@@ -66,7 +66,13 @@ def remove_already_completed(pset, output_location, performance_consideration=Fa
             level = 'dir_structure'
             # print(level, output_location, source)
             grp_path = set_grp_path(output_location, pset, config=config, make_grp=False, source=source)
-            parquet_file = template_replace("E{E}_tau{tau}_lag{lag}.parquet", pset, return_replaced=False)
+            parquet_file_template = "E{E}_tau{tau}_lag{lag}"
+            if config is not None:
+                try:
+                    parquet_file_template = config.output.parquet.file_format
+                except Exception:
+                    parquet_file_template = "E{E}_tau{tau}_lag{lag}"
+            parquet_file = f'{template_replace(parquet_file_template, pset, return_replaced=False)}.parquet'
             parquet_file_path = grp_path / parquet_file
             if parquet_file_path.exists() is True:
                 dset = ds.dataset(str(grp_path / parquet_file), format="parquet")
