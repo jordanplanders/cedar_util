@@ -105,6 +105,22 @@ class BasePlot:
     def pull_df(self, output, columns= None):
         return output.select(columns).to_pandas()
 
+    def resolve_xy_names(self, outputgrp):
+        x_name = None
+        y_name = None
+        relationships = getattr(outputgrp, "relationships", None)
+        if relationships is not None:
+            x_name = getattr(relationships, "var_x", None)
+            y_name = getattr(relationships, "var_y", None)
+        if x_name is None or y_name is None:
+            grp_config = getattr(outputgrp, "grp_config", None)
+            if grp_config is not None:
+                if x_name is None:
+                    x_name = getattr(grp_config, "var_x", None)
+                if y_name is None:
+                    y_name = getattr(grp_config, "var_y", None)
+        return x_name, y_name
+
 
     def handle_legend(self, collect_legend=True, legend=False, element_type='scatter'):
         if collect_legend is True:
@@ -252,7 +268,13 @@ class LibSizeRhoPlot(BasePlot):
         #     outputgrp.delta_rho_full.get_table()
 
         if 'relation_0' not in outputgrp.libsize_aggregated._full.schema.names:
-            outputgrp.libsize_aggregated._full = add_relation_s_inferred(outputgrp.libsize_aggregated._full, relation_col='relation')
+            x_name, y_name = self.resolve_xy_names(outputgrp)
+            outputgrp.libsize_aggregated._full = add_relation_s_inferred(
+                outputgrp.libsize_aggregated._full,
+                x_var_name=x_name,
+                y_var_name=y_name,
+                relation_col='relation'
+            )
 
         real_lag_df = self.pull_df(outputgrp.libsize_aggregated.real, columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau'])
         real_lag_df = real_lag_df[real_lag_df['lag'] == self.lag]
@@ -440,7 +462,13 @@ class LagPlot(BasePlot):
             outputgrp.delta_rho_full.get_table()
 
         if 'relation_0' not in outputgrp.delta_rho_stats._full.schema.names:
-            outputgrp.delta_rho_stats._full = add_relation_s_inferred(outputgrp.delta_rho_stats._full, relation_col='relation')
+            x_name, y_name = self.resolve_xy_names(outputgrp)
+            outputgrp.delta_rho_stats._full = add_relation_s_inferred(
+                outputgrp.delta_rho_stats._full,
+                x_var_name=x_name,
+                y_var_name=y_name,
+                relation_col='relation'
+            )
 
         real_lag_df = self.pull_df(outputgrp.delta_rho_stats.real, columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num'])
         self.add_line(real_lag_df, units=None)
@@ -729,4 +757,3 @@ class SimplexGrid(BasePlot):
         # self.cbar_ax.imshow(self.palette, extent=[0, 10, 0, 1])
         self.cbar_ax.set_ylim([self.vmin, self.vmax])
         self.cbar_ax.set_ylabel(self.cbar_label, labelpad=10)
-
