@@ -103,7 +103,7 @@ def infer_var_names_from_relation(table: pa.Table, relation_col: str = "relation
             names.update(parsed)
     if len(names) != 2:
         raise ValueError(f"Could not infer exactly two variable names from relations; found: {sorted(names)}")
-    a, b = sorted(names)  # order doesn’t matter for labeling; pick a stable order
+    a, b = sorted(names)  # order doesn't matter for labeling; pick a stable order
     return a, b
 
 
@@ -120,7 +120,19 @@ def add_relation_s_inferred(
         relation_col = "relation"
     if relation_col not in table.schema.names or surr_col not in table.schema.names:
         raise KeyError(f"Need columns '{relation_col}' and '{surr_col}'")
-    x_var_name, y_var_name = infer_var_names_from_relation(table, relation_col)
+
+    # Prefer explicit names, then table metadata columns, then relation inference.
+    if x_var_name is None and "x_var" in table.schema.names:
+        x_vals = [v for v in pc.unique(table["x_var"]).to_pylist() if v is not None and str(v) != ""]
+        if len(x_vals) == 1:
+            x_var_name = str(x_vals[0])
+    if y_var_name is None and "y_var" in table.schema.names:
+        y_vals = [v for v in pc.unique(table["y_var"]).to_pylist() if v is not None and str(v) != ""]
+        if len(y_vals) == 1:
+            y_var_name = str(y_vals[0])
+
+    if x_var_name is None or y_var_name is None:
+        x_var_name, y_var_name = infer_var_names_from_relation(table, relation_col)
     # print(f"Inferred variable names: '{x_var_name}', '{y_var_name}'")
     table = table.combine_chunks()
 
