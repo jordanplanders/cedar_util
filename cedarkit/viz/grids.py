@@ -5,12 +5,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from cedarkit.utils.plotting.plotting_utils import font_resizer, int_yticks_within_ylim, replace_supylabel, isotope_ylabel, replace_latex_labels
+    from cedarkit.utils.plotting.plotting_utils import (
+        font_resizer,
+        int_yticks_within_ylim,
+        replace_supylabel,
+        isotope_ylabel,
+        replace_latex_labels,
+        build_discrete_lag_palette,
+    )
     from cedarkit.utils.cli import log_line
 
 except ImportError:
     # Fallback: imports when running as a package
-    from utils.plotting.plotting_utils import font_resizer, int_yticks_within_ylim, replace_supylabel, isotope_ylabel, replace_latex_labels
+    from utils.plotting.plotting_utils import (
+        font_resizer,
+        int_yticks_within_ylim,
+        replace_supylabel,
+        isotope_ylabel,
+        replace_latex_labels,
+        build_discrete_lag_palette,
+    )
     from utils.cli.logging import log_line
 
 
@@ -183,7 +197,7 @@ class GridPlot:
             ylims = (min(self.ylims), max(self.ylims)) if self.ylims else (None, None)
             self.subfigs[0].axes[0].set_ylim(ylims)
             yticks = self.subfigs[0].axes[0].get_yticks()
-            delta_y = np.abs(yticks[1] - yticks[0])
+            delta_y = np.abs(yticks[1] - yticks[0]) if len(yticks) > 1 else 0
             if ylims[0] is not None:
                 ylims = [ylims[0] - .25 * delta_y, ylims[1]]
 
@@ -677,16 +691,43 @@ class SummaryGrid(GridPlot):
         self.vlims = []
         self.palette = None
         self.sizes= (0, 400)
+        self.discrete_lag_mode = False
+        self.discrete_lag_values = []
+        self.show_corner_legend = False
+        self.show_tie_legend = False
+        self.show_peak_circle_legend = False
+        self.peak_circle_size_samples = [0.2, 0.5, 0.9]
+        self.peak_circle_size_range = (30, 380)
         # self.grid_type = 'heatmap'
 
 
     def make_colorbar(self):
         self.cbar_ax = self.get_ax(0, self.ncols - 1)
+        if self.cbar_ax is None:
+            return
+        # Ensure we never stack multiple ColorbarBase artists on the same axis.
+        self.cbar_ax.cla()
+
+        if self.discrete_lag_mode is True and len(self.discrete_lag_values) > 0:
+            lag_vals = sorted([int(v) for v in self.discrete_lag_values])
+            lag_info = build_discrete_lag_palette(lag_vals, palette=self.palette)
+            n = len(lag_info['lags'])
+            cmap = lag_info['cmap']
+            norm = lag_info['norm']
+            bounds = np.arange(-0.5, n + 0.5, 1)
+            mpl.colorbar.ColorbarBase(
+                self.cbar_ax,
+                cmap=cmap,
+                norm=norm,
+                boundaries=bounds,
+                ticks=np.arange(0, n, 1),
+            )
+            self.cbar_ax.set_yticklabels([str(v) for v in lag_info['lags']])
+            self.cbar_ax.set_ylabel(self.cbar_label if self.cbar_label else 'Optimal lag', labelpad=10)
+            return
 
         norm = mpl.colors.Normalize(vmin=min(self.vlims), vmax=max(self.vlims))
-
-        cbar = mpl.colorbar.ColorbarBase(self.cbar_ax, cmap=self.palette, norm=norm)
-
+        mpl.colorbar.ColorbarBase(self.cbar_ax, cmap=self.palette, norm=norm)
         self.cbar_ax.set_ylim(self.vlims)
         self.cbar_ax.set_ylabel(self.cbar_label, labelpad=10)
 
@@ -782,6 +823,31 @@ class SummaryGrid(GridPlot):
         # leg_ax.set_ylim(yims)
         leg_ax.axis('off')
         leg_ax.legend(tmp_h, tmp_l, bbox_to_anchor=bbox_to_anchor,loc='upper left', frameon=False)
+
+    def create_lag_legend(self, bbox_to_anchor=(0, .85)):
+        """Legend for lag-grid overlays (base/corner/tie/circle) in discrete lag mode."""
+        leg_ax = self.get_ax(1, self.ncols - 1)
+        if leg_ax is None:
+            return
+        leg_ax.axis('off')
+
+        handles = []
+        labels = []
+        if self.show_corner_legend:
+            handles.append(mpl.lines.Line2D([0], [0], marker='>', color='k', markerfacecolor='k', linewidth=0, markersize=10))
+            labels.append('Corner: best lag > x')
+        if self.show_tie_legend:
+            handles.append(mpl.lines.Line2D([0], [0], marker='x', color='k', linewidth=0, markersize=8))
+            labels.append('Tie at top rho')
+        if self.show_peak_circle_legend:
+            min_s, max_s = self.peak_circle_size_range
+            for sharp in self.peak_circle_size_samples:
+                size = (min_s + (max_s - min_s) * sharp) ** 0.5
+                handles.append(mpl.lines.Line2D([0], [0], marker='o', color='k', markerfacecolor='white', linewidth=0, markersize=size))
+                labels.append(f'Peak sharpness {sharp:.1f}')
+
+        if len(handles) > 0:
+            leg_ax.legend(handles, labels, bbox_to_anchor=bbox_to_anchor, loc='upper left', frameon=False)
 
 
     # #@ TODO update GridPlot tidy_rows to handle cbar and spacers
@@ -960,4 +1026,3 @@ class SummaryGrid(GridPlot):
             #     ax.set_xlabel('')
             #     ax.set_xticklabels([])
             #     ax.set_xticks([])
-
