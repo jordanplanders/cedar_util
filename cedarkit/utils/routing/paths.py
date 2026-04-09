@@ -101,7 +101,7 @@ def resolve_consolidated_dir(calc_location: Path, cfg, fmt: str | None, *, inclu
 
     output_sub = None
     try:
-        output_sub = getattr(cfg, "local").output_dir
+        output_sub = cfg.local.output_dir
     except Exception:
         output_sub = "output"
     base = Path(calc_location) / str(output_sub)
