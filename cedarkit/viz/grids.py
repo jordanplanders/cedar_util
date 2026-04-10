@@ -87,7 +87,12 @@ class GridPlot:
         if self.width_ratios is None:
             self.width_ratios = [1 for _ in range(self.ncols)]
         width_ratio_lists = [wr for wr in self.width_ratios if wr is not None and isinstance(wr, (list, tuple))]
-        self.subfigs = self.fig.subfigures(self.nrows,  max(1, len(width_ratio_lists)), wspace=wspace, hspace=hspace, height_ratios=self.height_ratios) if self.nrows > 1 else [self.fig]
+        if len(width_ratio_lists) > 0:
+            tmp_width_ratios = [sum(wr) for wr in width_ratio_lists]
+        else:
+            tmp_width_ratios = self.width_ratios
+
+        self.subfigs = self.fig.subfigures(self.nrows,  max(1, len(width_ratio_lists)), wspace=wspace, hspace=hspace, width_ratios=tmp_width_ratios, height_ratios=self.height_ratios) #if self.nrows > 1 else [self.fig]
 
         subfigs_d = {}
         for row in range(self.nrows):
@@ -104,8 +109,15 @@ class GridPlot:
                     self.occupied_dict[(row, col, 0)] = False
 
             else:
-                col_subfigs = subfig.subfigures(1, len(width_ratio_lists), width_ratios=[sum(wr) for wr in width_ratio_lists],
-                                                wspace=wspace, hspace=hspace) if len(width_ratio_lists) > 1 else [subfig]
+                print('got to the else for width_ratio_lists')
+                # subfig = self.subfigs[row] if self.nrows > 1 else self.subfigs[0]
+                # print('subfig', subfig)
+                col_subfigs = self.subfigs[row]
+                print('col_subfigs', col_subfigs)
+
+                # col_subfigs = subfig.subfigures(1, len(width_ratio_lists), width_ratios=[sum(wr) for wr in width_ratio_lists],
+                #                                 wspace=wspace, hspace=hspace) if len(width_ratio_lists) > 1 else [subfig]
+
                 for ik, width_ratio_list in enumerate(width_ratio_lists):
                     subfigs_d[(row, ik)] = col_subfigs[ik]
                     axes = col_subfigs[ik].subplots(1, len(width_ratio_list), gridspec_kw=dict(wspace=wspace, hspace=hspace, width_ratios=width_ratio_list)) if len(width_ratio_list) > 1 else [col_subfigs[ik].add_subplot(1, 1, 1)]
@@ -115,10 +127,10 @@ class GridPlot:
 
                     for jx in range(len(width_ratio_list)):
                         # col = sum([len(wr) for wr in width_ratio_lists[:ik]]) + jx
-                        self.ax_grid[(row, jx, ik)] = axes[jx] if len(width_ratio_list) > 1 else axes[0]
-                        self.occupied_dict[(row, jx, ik)] = False
-
-
+                        self.ax_grid[(row, ik, jx)] = axes[jx] if len(width_ratio_list) > 1 else axes[0]
+                        self.occupied_dict[(row, ik, jx)] = False
+        self.subfigs_d = subfigs_d
+        print(subfigs_d.keys())
         # else:
         #     for row in range(self.nrows):
         #         subfig = self.subfigs[row] if self.nrows > 1 else self.subfigs[0]
@@ -186,7 +198,7 @@ class GridPlot:
         if len(self.subfigs) == 0:
             log_line(logger, "No subfigures available; skipping tidy_rows.", indent=0, log_type="warning")
             return
-        if len(self.subfigs[0].axes) == 0:
+        elif len(self.subfigs[0]) == 0:
             log_line(logger, "No axes available; skipping tidy_rows.", indent=0, log_type="warning")
             return
 
