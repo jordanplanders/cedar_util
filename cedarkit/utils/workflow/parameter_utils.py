@@ -8,6 +8,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.compute as pc
+import polars as pl
 
 import numpy as np
 import pandas as pd
@@ -22,175 +23,214 @@ except ImportError:
     from utils.cli.logging import setup_logging, log_line
 
 
-def remove_already_completed(pset, output_location, performance_consideration=False, existence_consideration=False,
-                             max_libsize=375, config=None, source= 'parquet'):
-    '''
-    Check if a given parameter set has already been computed by looking for existing output files.
-    :param pset:
-    :param output_location:
-    :param performance_consideration:
-    :param existence_consideration:
-    :param max_libsize:
-    :param config:
-    :return: [pset] if not computed, else None
 
-    '''
-    meta_variables = ['tau', 'E', 'train_len', 'train_ind_i', 'knn', 'Tp_flag',
-                      'Tp', 'lag', 'Tp_lag_total', 'sample', 'weighted', 'target_var',
-                      'col_var', 'surr_var', 'col_var_id', 'target_var_id']
+def add_output_pointer_existence(parameter_df, output_location, config=None, source="csv", pointer_col="output_pointer"):
+    """
+    Add an output pointer column used for batch existence checks.
 
-    param_suffix = f'{pset["surr_var"]}{pset["surr_num"]}'
+    - csv: pointer is the group directory path
+    - parquet: pointer is the expected parquet file path
+    """
+    df = parameter_df.copy()
 
-    knn = pset['knn']
-    try:
-        if source == 'csv':
-            level = 'dir_structure_csv'
-            grp_path = set_grp_path(output_location, pset, config=config, make_grp=False, source=source)
-            if grp_path.exists() is False:
-                # print('\tGrp does not exist', grp_path)
-                return [pset]
-            calc_dir_list = os.listdir(grp_path)
-            # print('calc_dir_list', calc_dir_list)
-            if len(calc_dir_list) == 0:
-                # print('\tGrp empty', grp_path)
-                return [pset]
+    if source not in ("csv", "parquet"):
+        raise ValueError(f"Unsupported source '{source}'. Expected 'csv' or 'parquet'.")
 
-            target_files = [file for file in calc_dir_list if param_suffix in file]
-            # print('target_files', target_files)
-            if len(target_files) > 0:
-                return None
-            else:
-                return [pset]
+    parquet_file_template = "E{E}_tau{tau}_lag{lag}"
+    if source == "parquet" and config is not None:
+        try:
+            parquet_file_template = config.output.parquet.file_format
+        except Exception:
+            pass
 
+    pointers = []
+    for pset in df.to_dict(orient="records"):
+        grp_path = set_grp_path(output_location, pset, config=config, make_grp=False, source=source)
+
+        if source == "csv":
+            pointer = str(grp_path)
         else:
-            level = 'dir_structure'
-            # print(level, output_location, source)
-            grp_path = set_grp_path(output_location, pset, config=config, make_grp=False, source=source)
-            parquet_file_template = "E{E}_tau{tau}_lag{lag}"
-            if config is not None:
-                try:
-                    parquet_file_template = config.output.parquet.file_format
-                except Exception:
-                    parquet_file_template = "E{E}_tau{tau}_lag{lag}"
-            parquet_file = f'{template_replace(parquet_file_template, pset, return_replaced=False)}.parquet'
-            parquet_file_path = grp_path / parquet_file
-            if parquet_file_path.exists() is True:
-                dset = ds.dataset(str(grp_path / parquet_file), format="parquet")
+            parquet_file = f"{template_replace(parquet_file_template, pset, return_replaced=False)}.parquet"
+            pointer = str(Path(grp_path) / parquet_file)
 
-                try:
-                    unique_val_d = {col: pc.unique(dset.to_table(columns=[col]).column(col)).to_pylist() for col, value in pset.items() if
-                       (value is not None) and (col in dset.schema.names)}
-                    # print(unique_val_d, pset)
-                    existance_d = {}
-                    for col in unique_val_d.keys():
-                        # print(unique_val_d[col], pset[col])
-                        if pset[col] in unique_val_d[col]:
-                            existance_d[col]= True
-                        else:
-                            existance_d[col]=False
+        pointers.append(pointer)
 
-                    false_vals = [val for key, val in existance_d.items() if val is False]
+    df[pointer_col] = pointers
+    pointer_existence_map = {str(pointer): Path(pointer).exists() for pointer in df[pointer_col].unique()}
+    df['output_file_exists'] = df[pointer_col].map(pointer_existence_map)
 
-                    if len(false_vals) > 0:
-                        # print('False', existance_d)
-                        return [pset]
-                    else:
-                        # print('all good', existance_d)
-                        return None
-                except Exception as e:
-                    print('unique value error', e)
-                         #     #     #              len(pc.unique(real_table[col]).to_pylist()) > 1}
-                # dictionary of filter requests
+    return df
 
-                # pset = {key: correct_iterable(value) for key, value in pset.items() if key not in ['pset_id', 'id']}
-                # filters = {key: ds.field(key).isin(value) for key, value in pset.items() if
-                #            value is not None and key in dset.schema.names}
-                # # print(filters)
-                #
-                # # combine filters (AND all of them):
-                # combined_filter = reduce(operator.and_, filters.values())
-                # table = dset.to_table(filter=combined_filter)
-                # # print(table.schema, file=sys.stderr)
-                # # df = table.to_pandas()  # already column-subsetted
-                # # print(f"Parquet scan found {df.shape} rows after filtering for {pset}", file=sys.stderr)
-                # if table.num_rows > 0:
-                #     return None
-                # else:
-                #     return [pset]
-            else:
-                return [pset]
-        # print('\tchecking grp at', grp_path)
-    except:
-        print('could not find group', pset)
 
-    # if grp_path.exists() is False:
-    #     print('\tGrp does not exist', grp_path)
-    #     return  [pset]
-    # print(1)
-    # calc_dir_list = os.listdir(grp_path)
-    # # print('calc_dir_list', calc_dir_list)
-    # if len(calc_dir_list) == 0:
-    #     # print('\tGrp empty', grp_path)
-    #     return [pset]
-
-    # knn = pset['knn']
-
-    # conditions for running
-    # if source== 'csv':
-    #     # print(2, 'csv')
-    #     target_files = [file for file in calc_dir_list if param_suffix in file]
-    #     # print('target_files', target_files)
-    #     if len(target_files) > 0:
-    #         return None
-    #     else:
-    #         return [pset]
-
-    # elif source == 'parquet':
-    #
-    #     # E, tau = _find_e_tau_dir(grp_path)
-    #     # # print('reading parquet for', grp_d, 'at', grp_path, file=sys.stdout)
-    #     # parquet_path = _results_parquet_path(grp_path)
-    #     # # print(f"Reading Parquet data from {parquet_path} for E={E}, tau={tau}, knn={knn}", file=sys.stdout)
-    #     # out = {"path": str(parquet_path), "exists": parquet_path.exists(), "is_file": parquet_path.is_file(),
-    #     #        "is_dir": parquet_path.is_dir()}
-    #     # # print(out, file=sys.stderr)
-    #     #
-    #     # # print('attempting to open parquet at', parquet_path/'results.parquet', file=sys.stderr)
-    #     # dset = ds.dataset(str(parquet_path / 'results.parquet'), format="parquet")
-    #     # # print('opened parquet dataset', file=sys.stderr)
-    #     # # dictionary of filter requests
-    #     # filters = {key: ds.field(key).isin(value) for key, value in grp_d.items() if
-    #     #            value is not None and key in dset.schema.names}
-    #     # # print('filters', filters, grp_d)
-    #     # # combine filters (AND all of them):
-    #     # combined_filter = reduce(operator.and_, filters.values())
-    #     # table = dset.to_table(filter=combined_filter)
-    #     # print(f"Parquet scan found {table.num_rows} rows after initial filtering", file=sys.stderr)
-    #     #
-    #
-    #     #@TODO need to fix the file name format
-    #     # if os.path.exists(grp_path / 'results.parquet') is False:
-    #     #     print('\tNo results.parquet found', grp_path / 'results.parquet')
-    #     #     return [pset]
-    #     # dset = ds.dataset(str(grp_path / 'results.parquet'), format="parquet")
-    #     #
-    #     print(len(calc_dir_list), 'files in grp dir', grp_path)
-    #     for file in calc_dir_list:
-    #         dset = ds.dataset(str(grp_path / file), format="parquet")
-    #         # dictionary of filter requests
-    #         pset = {key: correct_iterable(value) for key, value in pset.items()}
-    #         filters = {key: ds.field(key).isin(value) for key, value in pset.items() if value is not None and key in dset.schema.names}
-    #
-    #         # combine filters (AND all of them):
-    #         combined_filter = reduce(operator.and_, filters.values())
-    #         table = dset.to_table(filter=combined_filter)
-    #         # print(table.schema, file=sys.stderr)
-    #         # df = table.to_pandas()  # already column-subsetted
-    #         # print(f"Parquet scan found {df.shape} rows after filtering for {pset}", file=sys.stderr)
-    #         if table.num_rows > 0:
-    #             return None
-    #         else:
-    #             return [pset]
+# def remove_already_completed(pset, output_location, performance_consideration=False, existence_consideration=False,
+#                              max_libsize=375, config=None, source= 'parquet'):
+#     '''
+#     Check if a given parameter set has already been computed by looking for existing output files.
+#     :param pset:
+#     :param output_location:
+#     :param performance_consideration:
+#     :param existence_consideration:
+#     :param max_libsize:
+#     :param config:
+#     :return: [pset] if not computed, else None
+#
+#     '''
+#     meta_variables = ['tau', 'E', 'train_len', 'train_ind_i', 'knn', 'Tp_flag',
+#                       'Tp', 'lag', 'Tp_lag_total', 'sample', 'weighted', 'target_var',
+#                       'col_var', 'surr_var', 'col_var_id', 'target_var_id']
+#
+#     param_suffix = f'{pset["surr_var"]}{pset["surr_num"]}'
+#
+#     knn = pset['knn']
+#     try:
+#         if source == 'csv':
+#             level = 'dir_structure_csv'
+#             grp_path = set_grp_path(output_location, pset, config=config, make_grp=False, source=source)
+#             if grp_path.exists() is False:
+#                 # print('\tGrp does not exist', grp_path)
+#                 return [pset]
+#             calc_dir_list = os.listdir(grp_path)
+#             # print('calc_dir_list', calc_dir_list)
+#             if len(calc_dir_list) == 0:
+#                 # print('\tGrp empty', grp_path)
+#                 return [pset]
+#
+#             target_files = [file for file in calc_dir_list if param_suffix in file]
+#             # print('target_files', target_files)
+#             if len(target_files) > 0:
+#                 return None
+#             else:
+#                 return [pset]
+#
+#         else:
+#             level = 'dir_structure'
+#             # print(level, output_location, source)
+#             grp_path = set_grp_path(output_location, pset, config=config, make_grp=False, source=source)
+#             parquet_file_template = "E{E}_tau{tau}_lag{lag}"
+#             if config is not None:
+#                 try:
+#                     parquet_file_template = config.output.parquet.file_format
+#                 except Exception:
+#                     parquet_file_template = "E{E}_tau{tau}_lag{lag}"
+#             parquet_file = f'{template_replace(parquet_file_template, pset, return_replaced=False)}.parquet'
+#             parquet_file_path = grp_path / parquet_file
+#             if parquet_file_path.exists() is True:
+#                 dset = ds.dataset(str(grp_path / parquet_file), format="parquet")
+#
+#                 try:
+#                     unique_val_d = {col: pc.unique(dset.to_table(columns=[col]).column(col)).to_pylist() for col, value in pset.items() if
+#                        (value is not None) and (col in dset.schema.names)}
+#                     # print(unique_val_d, pset)
+#                     existance_d = {}
+#                     for col in unique_val_d.keys():
+#                         # print(unique_val_d[col], pset[col])
+#                         if pset[col] in unique_val_d[col]:
+#                             existance_d[col]= True
+#                         else:
+#                             existance_d[col]=False
+#
+#                     false_vals = [val for key, val in existance_d.items() if val is False]
+#
+#                     if len(false_vals) > 0:
+#                         # print('False', existance_d)
+#                         return [pset]
+#                     else:
+#                         # print('all good', existance_d)
+#                         return None
+#                 except Exception as e:
+#                     print('unique value error', e)
+#                          #     #     #              len(pc.unique(real_table[col]).to_pylist()) > 1}
+#                 # dictionary of filter requests
+#
+#                 # pset = {key: correct_iterable(value) for key, value in pset.items() if key not in ['pset_id', 'id']}
+#                 # filters = {key: ds.field(key).isin(value) for key, value in pset.items() if
+#                 #            value is not None and key in dset.schema.names}
+#                 # # print(filters)
+#                 #
+#                 # # combine filters (AND all of them):
+#                 # combined_filter = reduce(operator.and_, filters.values())
+#                 # table = dset.to_table(filter=combined_filter)
+#                 # # print(table.schema, file=sys.stderr)
+#                 # # df = table.to_pandas()  # already column-subsetted
+#                 # # print(f"Parquet scan found {df.shape} rows after filtering for {pset}", file=sys.stderr)
+#                 # if table.num_rows > 0:
+#                 #     return None
+#                 # else:
+#                 #     return [pset]
+#             else:
+#                 return [pset]
+#         # print('\tchecking grp at', grp_path)
+#     except:
+#         print('could not find group', pset)
+#
+#     # if grp_path.exists() is False:
+#     #     print('\tGrp does not exist', grp_path)
+#     #     return  [pset]
+#     # print(1)
+#     # calc_dir_list = os.listdir(grp_path)
+#     # # print('calc_dir_list', calc_dir_list)
+#     # if len(calc_dir_list) == 0:
+#     #     # print('\tGrp empty', grp_path)
+#     #     return [pset]
+#
+#     # knn = pset['knn']
+#
+#     # conditions for running
+#     # if source== 'csv':
+#     #     # print(2, 'csv')
+#     #     target_files = [file for file in calc_dir_list if param_suffix in file]
+#     #     # print('target_files', target_files)
+#     #     if len(target_files) > 0:
+#     #         return None
+#     #     else:
+#     #         return [pset]
+#
+#     # elif source == 'parquet':
+#     #
+#     #     # E, tau = _find_e_tau_dir(grp_path)
+#     #     # # print('reading parquet for', grp_d, 'at', grp_path, file=sys.stdout)
+#     #     # parquet_path = _results_parquet_path(grp_path)
+#     #     # # print(f"Reading Parquet data from {parquet_path} for E={E}, tau={tau}, knn={knn}", file=sys.stdout)
+#     #     # out = {"path": str(parquet_path), "exists": parquet_path.exists(), "is_file": parquet_path.is_file(),
+#     #     #        "is_dir": parquet_path.is_dir()}
+#     #     # # print(out, file=sys.stderr)
+#     #     #
+#     #     # # print('attempting to open parquet at', parquet_path/'results.parquet', file=sys.stderr)
+#     #     # dset = ds.dataset(str(parquet_path / 'results.parquet'), format="parquet")
+#     #     # # print('opened parquet dataset', file=sys.stderr)
+#     #     # # dictionary of filter requests
+#     #     # filters = {key: ds.field(key).isin(value) for key, value in grp_d.items() if
+#     #     #            value is not None and key in dset.schema.names}
+#     #     # # print('filters', filters, grp_d)
+#     #     # # combine filters (AND all of them):
+#     #     # combined_filter = reduce(operator.and_, filters.values())
+#     #     # table = dset.to_table(filter=combined_filter)
+#     #     # print(f"Parquet scan found {table.num_rows} rows after initial filtering", file=sys.stderr)
+#     #     #
+#     #
+#     #     #@TODO need to fix the file name format
+#     #     # if os.path.exists(grp_path / 'results.parquet') is False:
+#     #     #     print('\tNo results.parquet found', grp_path / 'results.parquet')
+#     #     #     return [pset]
+#     #     # dset = ds.dataset(str(grp_path / 'results.parquet'), format="parquet")
+#     #     #
+#     #     print(len(calc_dir_list), 'files in grp dir', grp_path)
+#     #     for file in calc_dir_list:
+#     #         dset = ds.dataset(str(grp_path / file), format="parquet")
+#     #         # dictionary of filter requests
+#     #         pset = {key: correct_iterable(value) for key, value in pset.items()}
+#     #         filters = {key: ds.field(key).isin(value) for key, value in pset.items() if value is not None and key in dset.schema.names}
+#     #
+#     #         # combine filters (AND all of them):
+#     #         combined_filter = reduce(operator.and_, filters.values())
+#     #         table = dset.to_table(filter=combined_filter)
+#     #         # print(table.schema, file=sys.stderr)
+#     #         # df = table.to_pandas()  # already column-subsetted
+#     #         # print(f"Parquet scan found {df.shape} rows after filtering for {pset}", file=sys.stderr)
+#     #         if table.num_rows > 0:
+#     #             return None
+#     #         else:
+#     #             return [pset]
 
 
 
@@ -236,7 +276,7 @@ def remove_already_completed(pset, output_location, performance_consideration=Fa
 
 def get_assessed_param_picks(proj_dir, output_location, comb_df,config=None,parameter_dir=None,
                              surr=False, surr_num=201, groupby_vars = None, testmode=True,
-                           tp_vals = [1], knn_vals = [20],  append=False,source=None,
+                           tp_vals = [1], knn_vals = [20],  append=False,source=None, row_count_threshold=None,
                              surr_vars=None, verbose= False):
     """
     Generate slurm scripts for running CCM parameters based on combinations in comb_df.
@@ -359,21 +399,81 @@ def get_assessed_param_picks(proj_dir, output_location, comb_df,config=None,para
         except:
             print('1 could not convert', col)
             pass
+
+    parameter_df = add_output_pointer_existence(parameter_df, output_location, config=config, source=source)
+
+    # print(parameter_df.head())
     parameter_ds = parameter_df.to_dict(orient='records')
     done = []
     torun = []
-    for ik, pset in enumerate(parameter_ds):
-        if append is not True:
-            candidates = remove_already_completed(pset, output_location, performance_consideration=False,
-                                                  existence_consideration=False, source=source, max_libsize=375, config=config)
-            # print('checking', ik, 'of', len(parameter_ds), pset, 'candidates', candidates)
-            if candidates is None:
-                done.append(pset)
-            else:
-                torun += candidates
+
+    if append is True:
+        messages.append('append is True, not checking for already completed parameter sets')
+        torun = parameter_ds
+    else:
+        file_absent = parameter_df[parameter_df['output_file_exists'] == False].copy()
+        file_absent_ds = file_absent.to_dict(orient='records')
+        torun += file_absent_ds
+
+        file_present = parameter_df[parameter_df['output_file_exists'] == True].copy()
+
+        exclude_cols = {"output_file_exists", "output_pointer", "expected_n_rows", "train_len", 'id', 'train_ind_i', 'Tp_flag', 'Tp_lag_total', 'sample'}
+
+        count_cols = [
+            col for col in parameter_df.columns
+            if col not in exclude_cols
+        ]
+        # print(count_cols)
+        count_cols = ["E", "tau", "Tp", "lag", "knn", "surr_var", "surr_num"]
+
+        if source == "parquet" and not file_present.empty:
+            for E_tau, file_present_grp in file_present.groupby(["E", "tau"]):
+                file_list = file_present_grp["output_pointer"].dropna().unique().tolist()
+
+                counts = (
+                    pl.scan_parquet(file_list)
+                    .select(count_cols)
+                    .group_by(count_cols)
+                    .len(name="n_rows_found")
+                    .collect()
+                )
+
+                checked = (
+                    pl.from_pandas(file_present_grp)
+                    .join(counts, on=count_cols, how="left")
+                    .with_columns(pl.col("n_rows_found").fill_null(0))
+                )
+
+                done += (
+                    checked
+                    .filter(pl.col("n_rows_found") >= row_count_threshold)
+                    .drop("n_rows_found")
+                    .to_dicts()
+                )
+
+                torun += (
+                    checked
+                    .filter(pl.col("n_rows_found") < row_count_threshold)
+                    .drop("n_rows_found")
+                    .to_dicts()
+                )
         else:
-            # print('append', pset)
-            torun.append(pset)
+            done = []
+
+
+
+    # for ik, pset in enumerate(parameter_ds):
+    #     if append is not True:
+    #         candidates = remove_already_completed(pset, output_location, performance_consideration=False,
+    #                                               existence_consideration=False, source=source, max_libsize=375, config=config)
+    #         # print('checking', ik, 'of', len(parameter_ds), pset, 'candidates', candidates)
+    #         if candidates is None:
+    #             done.append(pset)
+    #         else:
+    #             torun += candidates
+    #     else:
+    #         # print('append', pset)
+    #         torun.append(pset)
 
     to_run_df = pd.DataFrame.from_records(torun)
     to_run_df['to_run'] = True
@@ -381,6 +481,7 @@ def get_assessed_param_picks(proj_dir, output_location, comb_df,config=None,para
     done_df['to_run'] = False
 
     combined_df = pd.concat([to_run_df, done_df], ignore_index=True)
+    # print(combined_df.head())
     # for col in combined_df.columns:
     #     combined_df[col] = combined_df[col].apply(lambda x: x if ~isinstance(x, list) else x[0] if (len(x)==1) else x)
     combined_df = combined_df.applymap(lambda x: x[0] if isinstance(x, list) and len(x) > 0 else x)
