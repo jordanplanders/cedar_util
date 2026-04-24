@@ -165,6 +165,40 @@ def sqlite_paths(proj_dir, config, *, run_id=None, calc_location=None, output_di
     if not collector_name:
         collector_name = getattr(sqlite_cfg, "file_format", "collector")
     collector_name = collector_name or "collector"
+    def _nested_attr(obj, path, default=None):
+        cur = obj
+        for part in path.split("."):
+            if cur is None or not hasattr(cur, part):
+                return default
+            cur = getattr(cur, part)
+        return cur
+
+    # Prefer dyad config IDs when available, then human-readable labels, then
+    # legacy graphccm-style config.data.var_A/var_B fallbacks.
+    col_var_id = (
+        _nested_attr(config, "col.var_id")
+        or _nested_attr(config, "col.var")
+        or _nested_attr(config, "vars.col")
+        or _nested_attr(config, "data.var_A")
+        or ""
+    )
+    target_var_id = (
+        _nested_attr(config, "target.var_id")
+        or _nested_attr(config, "target.var")
+        or _nested_attr(config, "vars.target")
+        or _nested_attr(config, "data.var_B")
+        or ""
+    )
+
+    collector_name = template_replace(
+        str(collector_name),
+        {
+            "col_var_id": str(col_var_id),
+            "target_var_id": str(target_var_id),
+            "run_id": str(run_id or ""),
+        },
+        return_replaced=False,
+    )
     consolidated_dir = resolve_consolidated_dir(Path(calc_location), config, consolidated_fmt)
     if ensure:
         consolidated_dir.mkdir(parents=True, exist_ok=True)
@@ -294,3 +328,16 @@ def check_exists(file_name, calc_dir):
         stem_exists = True
 
     return pset_exists, stem_exists
+
+
+def resolve_dyad_dir(*, project_dir: Path, left_id: str, right_id: str) -> Path:
+    candidates = [
+        Path(project_dir) / 'dyads' / f'{left_id}_{right_id}',
+        Path(project_dir) / 'dyads' / f'{right_id}_{left_id}',
+        Path(project_dir) / f'{left_id}_{right_id}',
+        Path(project_dir) / f'{right_id}_{left_id}',
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    raise FileNotFoundError(f'Could not resolve dyad directory for pair: {left_id}, {right_id}')
