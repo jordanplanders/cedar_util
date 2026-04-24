@@ -41,6 +41,24 @@ logger = logging.getLogger(__name__)
 _REL_SEPS = [r"\s*->\s*", r"\s*→\s*", r"\s*=>\s*", r"\s+causes\s+", r"\s+influences\s+"]
 
 
+def _get_output_path(output_obj, attr_name):
+    if output_obj is None:
+        return None
+    attr_obj = getattr(output_obj, attr_name, None)
+    if attr_obj is None:
+        return None
+    return getattr(attr_obj, "path", None)
+
+
+def _path_exists(path_like):
+    if path_like is None:
+        return False
+    try:
+        return Path(path_like).exists()
+    except Exception:
+        return False
+
+
 def _parse_relation_pair(rel):
     if rel is None:
         return None, None
@@ -154,13 +172,8 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
                  log_type="debug")
         output_col = groupconfig_file.pull_output(to_table=False)
 
-        full_out = False
-        stats_out = True
-        if calc_delta_rho_full is True:
-            full_out = True
-
-        if calc_delta_rho_table is True:
-            stats_out = True
+        full_out = bool(calc_delta_rho_full)
+        stats_out = bool(calc_delta_rho_table)
         if (full_out is True) or (stats_out is True):
             # print(f'\tcalculating delta rho for {name}; full_out {full_out}, stats_out {stats_out}', file=sys.stdout, flush=True)
             log_line(logger, f'\tcalculating delta rho for {name}; full_out {full_out}, stats_out {stats_out}', indent=0,
@@ -180,70 +193,126 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
     e_val = grp_info.get("E")
     tau_val = grp_info.get("tau")
     et_tag = f"E{e_val}_tau{tau_val}"
+    df = pd.DataFrame(columns=["surr_var", "surr_num_count_distinct"])
+    write_status = {
+        "delta_rho_stats": "not_requested",
+        "delta_rho_full": "not_requested",
+        "libsize_aggregated": "not_requested",
+    }
 
     if aggregate_libsize_table is True:
-        libsize_aggregated_path = existing_output.libsize_aggregated.path if existing_output is not None else None
+        libsize_aggregated_path = _get_output_path(existing_output, "libsize_aggregated")
         if libsize_aggregated_path is not None and et_tag in str(libsize_aggregated_path):
             new_output_col.libsize_aggregated.path = libsize_aggregated_path
 
     if calc_delta_rho_table is True:
-        delta_rho_path = existing_output.delta_rho_stats.path if existing_output is not None else None
+        delta_rho_path = _get_output_path(existing_output, "delta_rho_stats")
         if delta_rho_path is not None and et_tag in str(delta_rho_path):
             new_output_col.delta_rho_stats.path = delta_rho_path
 
     if calc_delta_rho_full is True:
-        delta_rho_path_full = existing_output.delta_rho_full.path if existing_output is not None else None
+        delta_rho_path_full = _get_output_path(existing_output, "delta_rho_full")
         if delta_rho_path_full is not None and et_tag in str(delta_rho_path_full):
             new_output_col.delta_rho_full.path = delta_rho_path_full
 
-    if new_output_col.libsize_aggregated is None:
-        if existing_output is not None:
+    if new_output_col.libsize_aggregated is None and existing_output is not None:
+        try:
             new_output_col.libsize_aggregated = existing_output.libsize_aggregated
-            new_output_col.libsize_aggregated.get_table()
+            if new_output_col.libsize_aggregated is not None:
+                new_output_col.libsize_aggregated.get_table()
+        except Exception as e:
+            log_line(logger, f"Unable to hydrate existing libsize_aggregated for E={e_val}, tau={tau_val}: {e}",
+                     indent=0, log_type="warning")
 
-    if new_output_col.delta_rho_stats is None:
-        if existing_output is not None:
+    if new_output_col.delta_rho_stats is None and existing_output is not None:
+        try:
             new_output_col.delta_rho_stats = existing_output.delta_rho_stats
-            new_output_col.delta_rho_stats.get_table()
+            if new_output_col.delta_rho_stats is not None:
+                new_output_col.delta_rho_stats.get_table()
+        except Exception as e:
+            log_line(logger, f"Unable to hydrate existing delta_rho_stats for E={e_val}, tau={tau_val}: {e}",
+                     indent=0, log_type="warning")
 
-    if new_output_col.delta_rho_full is None:
-        if existing_output is not None:
+    if new_output_col.delta_rho_full is None and existing_output is not None:
+        try:
             new_output_col.delta_rho_full = existing_output.delta_rho_full
-            new_output_col.delta_rho_full.get_table()
+            if new_output_col.delta_rho_full is not None:
+                new_output_col.delta_rho_full.get_table()
+        except Exception as e:
+            log_line(logger, f"Unable to hydrate existing delta_rho_full for E={e_val}, tau={tau_val}: {e}",
+                     indent=0, log_type="warning")
 
     # Safeguard: keep only rows whose relationship is between the two vars declared in proj_config.
     allowed_vars = {config.col.var, config.target.var}
     _apply_relationship_safeguard(new_output_col.delta_rho_stats, allowed_vars, "delta_rho_stats")
     _apply_relationship_safeguard(new_output_col.delta_rho_full, allowed_vars, "delta_rho_full")
     _apply_relationship_safeguard(new_output_col.libsize_aggregated, allowed_vars, "libsize_aggregated")
+    if aggregate_libsize_table is True and new_output_col.libsize_aggregated is not None:
+        try:
+            gb = new_output_col.libsize_aggregated.surrogate.group_by(["surr_var"]).aggregate([("surr_num", "count_distinct")])
+            df = gb.to_pandas()
+        except Exception as e:
+            log_line(logger, f"Unable to build annotations from libsize_aggregated for E={e_val}, tau={tau_val}: {e}",
+                     indent=0, log_type="warning")
 
-    try:
-        gb = new_output_col.libsize_aggregated.surrogate.group_by(["surr_var"]).aggregate([("surr_num", "count_distinct")])
-        df = gb.to_pandas()
+    if calc_delta_rho_table is True:
+        write_status["delta_rho_stats"] = "skipped_missing_object"
+        if new_output_col.delta_rho_stats is not None:
+            try:
+                new_output_col.delta_rho_stats.write_table(tag=f"E{e_val}_tau{tau_val}__delta_rho_stats")
+                write_status["delta_rho_stats"] = "written"
+                log_line(logger, '\twriting delta rho stats table', indent=0, log_type="info")
+            except Exception as e:
+                write_status["delta_rho_stats"] = f"failed: {type(e).__name__}"
+                log_line(logger, f"Failed writing delta rho stats for E={e_val}, tau={tau_val}: {e}",
+                         indent=0, log_type="error")
 
-        new_output_col.delta_rho_stats.write_table(tag=f"E{e_val}_tau{tau_val}__delta_rho_stats")
-        # print('\twriting delta rho stats table', file=sys.stdout, flush=True)
-        log_line(logger, '\twriting delta rho stats table',
-                 indent=0,
-                 log_type="info")
+    if calc_delta_rho_full is True:
+        write_status["delta_rho_full"] = "skipped_missing_object"
+        full_obj = new_output_col.delta_rho_full
+        pre_rows = 0
+        if full_obj is not None:
+            try:
+                full_obj.get_table()
+                pre_rows = 0 if full_obj._full is None else full_obj._full.num_rows
+                log_line(logger, f"delta_rho_full pre-write rows for E={e_val}, tau={tau_val}: {pre_rows}",
+                         indent=0, log_type="info")
+            except Exception as e:
+                write_status["delta_rho_full"] = f"failed_precheck: {type(e).__name__}"
+                log_line(logger, f"Failed pre-check for delta_rho_full E={e_val}, tau={tau_val}: {e}",
+                         indent=0, log_type="error")
 
-        new_output_col.delta_rho_full.write_table(tag=f"E{e_val}_tau{tau_val}__delta_rho_full")
-        # print('\twriting delta rho full table', file=sys.stdout, flush=True)
-        log_line(logger, '\twriting delta rho full table',
-                 indent=0,
-                 log_type="info")
+        if full_obj is not None and pre_rows > 0:
+            try:
+                full_obj.write_table(tag=f"E{e_val}_tau{tau_val}__delta_rho_full")
+                out_path = full_obj.path
+                if _path_exists(out_path):
+                    write_status["delta_rho_full"] = "written"
+                    log_line(logger, f"\twriting delta rho full table -> {out_path}", indent=0, log_type="info")
+                else:
+                    write_status["delta_rho_full"] = "failed_file_missing_after_write"
+                    log_line(logger, f"delta_rho_full path missing after write for E={e_val}, tau={tau_val}: {out_path}",
+                             indent=0, log_type="error")
+            except Exception as e:
+                write_status["delta_rho_full"] = f"failed: {type(e).__name__}"
+                log_line(logger, f"Failed writing delta rho full for E={e_val}, tau={tau_val}: {e}",
+                         indent=0, log_type="error")
+        elif full_obj is not None and pre_rows == 0 and "failed_precheck" not in write_status["delta_rho_full"]:
+            write_status["delta_rho_full"] = "skipped_empty_table"
+            log_line(logger, f"Skipping delta_rho_full write for E={e_val}, tau={tau_val}: empty table",
+                     indent=0, log_type="warning")
 
-        new_output_col.libsize_aggregated.write_table(tag=f"E{e_val}_tau{tau_val}__libsize_aggregated")
-        # print('\twriting libsize aggregated table', file=sys.stdout, flush=True)
-        log_line(logger, '\twriting libsize aggregated table',
-                 indent=0,
-                 log_type="info")
-
-    except Exception as e:
-        # print("Error pulling output for E={E}, tau={tau}: {error}".format(E=E, tau=tau, error=e))
-        log_line(logger, "Error pulling output for E={E}, tau={tau}: {error}".format(E=E, tau=tau, error=e),
-                 indent=0,
-                 log_type="error")
+    if aggregate_libsize_table is True:
+        write_status["libsize_aggregated"] = "skipped_missing_object"
+        if new_output_col.libsize_aggregated is not None:
+            try:
+                new_output_col.libsize_aggregated.write_table(tag=f"E{e_val}_tau{tau_val}__libsize_aggregated")
+                write_status["libsize_aggregated"] = "written"
+                log_line(logger, '\twriting libsize aggregated table', indent=0, log_type="info")
+            except Exception as e:
+                write_status["libsize_aggregated"] = f"failed: {type(e).__name__}"
+                log_line(logger, f"Failed writing libsize_aggregated for E={e_val}, tau={tau_val}: {e}",
+                         indent=0, log_type="error")
 
     # print('\tclearing tables', file=sys.stdout, flush=True)
     log_line(logger, '\tclearing tables',
@@ -252,6 +321,7 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
     new_output_col.clear_tables()
 
     cell_obj = GridCell(E_i, tau_i, new_output_col)
+    cell_obj.write_status = write_status
     del new_output_col
 
     cell_obj.row_labels.append(f"E={grp_info['E']}")
@@ -373,7 +443,6 @@ if __name__ == "__main__":
 
         joblib_cloud_atomic_dump(object_grid, tmp_dir / obj_grid_file_name, compress=3,
                                  protocol=5)
-        del object_grid
         gc.collect()
         log_line(logger, f"Processed and saved E={E}, tau={tau} to {tmp_dir}.", indent=0,
                  log_type="info")
@@ -387,12 +456,14 @@ if __name__ == "__main__":
                      log_type="info")
             # print('output is None, going the dual calculations', file=sys.stdout, flush=True)
         else:
-            if (object_grid[(E, tau)].output.delta_rho_stats is None) or (object_grid[(E, tau)].output.delta_rho_stats.path is None):
+            stats_path = _get_output_path(object_grid[(E, tau)].output, "delta_rho_stats")
+            full_path = _get_output_path(object_grid[(E, tau)].output, "delta_rho_full")
+            libsize_path = _get_output_path(object_grid[(E, tau)].output, "libsize_aggregated")
+            if (object_grid[(E, tau)].output.delta_rho_stats is None) or (stats_path is None) or (not _path_exists(stats_path)):
                 calc_delta_rho_table = True
-            if (object_grid[(E, tau)].output.delta_rho_full is None) or (object_grid[(E, tau)].output.delta_rho_full.path is None):
+            if (object_grid[(E, tau)].output.delta_rho_full is None) or (full_path is None) or (not _path_exists(full_path)):
                 calc_delta_rho_table_full = True
-                calc_delta_rho_table = True
-            if (object_grid[(E, tau)].output.libsize_aggregated is None) or (object_grid[(E, tau)].output.libsize_aggregated.path is None):
+            if (object_grid[(E, tau)].output.libsize_aggregated is None) or (libsize_path is None) or (not _path_exists(libsize_path)):
                 aggregate_libsize_table = True
 
         log_line(logger, ['calculations have been explicitly set: calc_delta_rho_table', calc_delta_rho_table,
@@ -409,7 +480,6 @@ if __name__ == "__main__":
 
             joblib_cloud_atomic_dump(object_grid, tmp_dir/obj_grid_file_name, compress=3,
                                    protocol=5)
-            del object_grid
             gc.collect()
             log_line(logger, f"Processed and saved E={E}, tau={tau} to {tmp_dir}.", indent=0,
                      log_type="info")
@@ -418,6 +488,33 @@ if __name__ == "__main__":
             log_line(logger, f"Skipping E={E}, tau={tau} because already processed.", indent=0,
                      log_type="info")
             # print(f"Skipping E={E}, tau={tau} because already processed.", file=sys.stdout, flush=True)
+
+    # Per-cell summary for bash-run diagnostics
+    try:
+        if (E, tau) in object_grid and object_grid[(E, tau)] is not None and object_grid[(E, tau)].output is not None:
+            out = object_grid[(E, tau)].output
+            full_path = _get_output_path(out, "delta_rho_full")
+            full_exists = _path_exists(full_path)
+            full_requested = bool(calc_delta_rho_table_full) or bool(not_in_grid) or bool(output_is_none)
+            full_status = "written" if full_exists else ("failed" if full_requested else "skipped")
+            extra = ""
+            if hasattr(object_grid[(E, tau)], "write_status"):
+                extra = f"; write_status={object_grid[(E, tau)].write_status.get('delta_rho_full')}"
+            log_line(
+                logger,
+                f"Cell summary E={E}, tau={tau}: full_requested={full_requested}; full_status={full_status}; full_path={full_path}{extra}",
+                indent=0,
+                log_type="info",
+            )
+        else:
+            log_line(
+                logger,
+                f"Cell summary E={E}, tau={tau}: full_requested=True; full_status=failed; reason=no_output_cell",
+                indent=0,
+                log_type="warning",
+            )
+    except Exception as e:
+        log_line(logger, f"Failed to emit cell summary for E={E}, tau={tau}: {e}", indent=0, log_type="error")
 
     # Process if either calculation flag is set
     # elif (calc_delta_rho_table is True) or (aggregate_libsize_table is True):
