@@ -55,6 +55,7 @@ class DataVarConfig:
         self.var_name = None
         self.year = None
         self.color = None
+        self.author = None
 
         # TODO there is some future redundancy here and sketchy path handling
         self.real_data_dir_path = None
@@ -78,7 +79,7 @@ class DataVarConfig:
         #     var_info = var_yaml.get(self.var_id, None) if var_yaml is not None else None
         # except:
         # print(f'reading var yaml for {self.var_id} failed, trying config')
-        print(self.var_id)
+        # print(self.var_id)
         var_info = config.get_dynamic_attr("{var}", self.var_id)
         var_info = var_info.to_dict()
         # self.load_from_config(config, proj_dir)
@@ -120,7 +121,7 @@ class DataVarConfig:
         self.get_color(config)
 
         surr_ts_d = var_info.pop('surrogate_ts', None)
-        print(var_info, surr_ts_d)
+        # print(var_info, surr_ts_d)
         #surr_csv_stem
         if 'surr_csv_stem' in var_info.keys():
             self.surr_csv_stem = var_info.pop('surr_csv_stem', None)
