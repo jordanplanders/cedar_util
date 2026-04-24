@@ -125,7 +125,7 @@ def gen_parameters_slurm2(proj_dir, output_location, comb_df, min_num_to_run=8, 
     print(f'checking existing outputs in: {check_output_location} (source={source}, check={check})')
     # calls get_assessed_param_picks internally
     combined_df, messages = get_assessed_param_picks(proj_dir, check_output_location, comb_df,config=config,parameter_dir=parameter_dir, surr=surr, surr_num=surr_num, groupby_vars = copy.copy(groupby_var), testmode=testmode,
-                            tp_vals = tp_vals, knn_vals = knn_vals,append=append,surr_vars=surr_vars, verbose= verbose, source=source)
+                            tp_vals = tp_vals, knn_vals = knn_vals,append=append,surr_vars=surr_vars, verbose= verbose, source=source, row_count_threshold=sample)
     # print('combined',combined_df.head())
     # calls make_slurm_script internally
     messages2 = gen_slurm_param_from_params(output_location, proj_dir, combined_df, messages=messages, parameter_flag='params',min_num_to_run=min_num_to_run,
@@ -159,6 +159,7 @@ def gen_slurm_param_from_params(output_location, proj_dir, combined_df, messages
         group_vars = ['E', 'tau', 'lag', 'col_var_id']
 
     print('gen_slurm_param_from_params', group_vars)
+    print('combined_df', combined_df.head())
     for group_vals, grp_df in combined_df.groupby(group_vars):
 
 
