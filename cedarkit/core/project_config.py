@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+import json
+from typing import Any, Mapping
+
 import yaml
 from pathlib import Path
 
@@ -144,16 +149,33 @@ def load_config(yaml_file, top_level_yaml=None, var_dir_name: str = "data_var_co
     cfg = _load_yaml(yaml_path)
 
     palette_dict = cfg.pop("pal", {})
+    pal_dir_options = []
     if top_level_yaml is not None:
+        top_level_config = _load_yaml(top_level_yaml)
+
         pal_dir = top_level_yaml.parent /var_dir_name
+        pal_dir_options.append(pal_dir)
+
+        pal_dir = top_level_yaml.parent/top_level_config.pop("data_var_configs",'')
+        pal_dir_options.append(pal_dir)
+
     else:
         pal_dir = (yaml_path.parent.parent / var_dir_name).resolve()
+        pal_dir_options.append(pal_dir)
 
         if (pal_dir / 'palette.yaml').exists() is False:
             pal_dir =  yaml_path.parent.parent.parent / var_dir_name
+            pal_dir_options.append(pal_dir)
 
-    if (pal_dir / 'palette.yaml').exists():
-        palette_dict = _load_yaml(pal_dir / 'palette.yaml')['pal']
+    for pal_dir in pal_dir_options:
+        pal_path = (pal_dir / 'palette.yaml')
+        if pal_path.exists():
+            # Load defensively; if 'pal' key missing, preserve existing palette_dict
+            pal_data = _load_yaml(pal_path)
+            if isinstance(pal_data, dict) and 'pal' in pal_data:
+                palette_dict = pal_data.get('pal', palette_dict)
+            # Stop searching once we've found a usable palette file
+            break
 
 
     dv = cfg.pop("data_vars", None)
@@ -233,3 +255,18 @@ def add_var(config, var_type, var_id, var_meta):
     # Flat vars mapping
     config.setdefault("vars", {})[var_type] = var_block["var"]
 
+
+def load_proj_config(cfg: Any) -> ProjectConfig:
+    if isinstance(cfg, ProjectConfig):
+        return cfg
+    if isinstance(cfg, (str, Path)):
+        path = Path(cfg)
+        if path.suffix.lower() in {".yaml", ".yml"}:
+            return load_config(path)
+        if path.suffix.lower() == ".json":
+            data = json.loads(path.read_text())
+            return ProjectConfig(data)
+        raise ValueError(f"Unsupported config file type: {path}")
+    if isinstance(cfg, Mapping):
+        return ProjectConfig(dict(cfg))
+    raise TypeError("cfg must be a ProjectConfig, dict, or path to YAML/JSON")
