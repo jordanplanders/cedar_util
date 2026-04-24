@@ -2,6 +2,7 @@ import matplotlib as mpl
 import numpy as np
 from matplotlib import pyplot as plt
 import logging
+from collections.abc import Iterable
 logger = logging.getLogger(__name__)
 
 try:
@@ -45,7 +46,7 @@ class GridCell:
         annotations = []
         self.relationships = None
 
-
+from collections.abc import Iterable
 class GridPlot:
     def __init__(self, nrows, ncols, width_ratios=None, height_ratios=None, grid_type='plot'):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
@@ -64,10 +65,11 @@ class GridPlot:
         self.fig = None
         self.subfigs = []
         self.ylims = []
-        self.xlims = []
+        self.xlims = None
         self.width_ratios = width_ratios
         self.height_ratios = height_ratios
         self.palette = None
+        self.norm = None
         self.subfigs_d = None
         self.default_ylabel = None
         self.grid_type = grid_type  #'plot' or 'heatmap'
@@ -87,19 +89,36 @@ class GridPlot:
         if self.width_ratios is None:
             self.width_ratios = [1 for _ in range(self.ncols)]
         width_ratio_lists = [wr for wr in self.width_ratios if wr is not None and isinstance(wr, (list, tuple))]
+        # print('width_ratio_lists', width_ratio_lists)
         if len(width_ratio_lists) > 0:
             tmp_width_ratios = [sum(wr) for wr in width_ratio_lists]
+            self.subfigs = self.fig.subfigures(self.nrows, max(1, len(width_ratio_lists)), wspace=wspace, hspace=hspace,
+                                               width_ratios=tmp_width_ratios,
+                                               height_ratios=self.height_ratios)  # if self.nrows > 1 else [self.fig]
+
+
         else:
             tmp_width_ratios = self.width_ratios
+            self.subfigs = self.fig.subfigures(self.nrows, max(1, len(width_ratio_lists)), wspace=wspace, hspace=hspace,
+                                               # width_ratios=tmp_width_ratios,
+                                               height_ratios=self.height_ratios)  # if self.nrows > 1 else [self.fig]
 
-        self.subfigs = self.fig.subfigures(self.nrows,  max(1, len(width_ratio_lists)), wspace=wspace, hspace=hspace, width_ratios=tmp_width_ratios, height_ratios=self.height_ratios) #if self.nrows > 1 else [self.fig]
-
+        if isinstance(self.subfigs, Iterable) is False or isinstance(self.subfigs, (str, bytes)):
+            self.subfigs = [self.subfigs]
+            # width_ratio_lists = tmp_width_ratios
+        # print('tmp_width_ratios', tmp_width_ratios, len(width_ratio_lists), max(1, len(width_ratio_lists)))
+        print('subfigs', self.subfigs)
         subfigs_d = {}
         for row in range(self.nrows):
             if len(width_ratio_lists) == 0:
                 subfig = self.subfigs[row] if self.nrows > 1 else self.subfigs[0]
+                # print('subfig', subfig)
 
-                axes = subfig.subplots(1, self.ncols, gridspec_kw=dict(wspace=wspace, hspace=hspace, width_ratios=self.width_ratios)) if self.ncols > 1 else [subfig.add_subplot(1, 1, 1)]
+                try:
+                    axes = subfig.subplots(1, self.ncols, gridspec_kw=dict(wspace=wspace, hspace=hspace, width_ratios=self.width_ratios)) if self.ncols > 1 else [subfig.add_subplot(1, 1, 1)]
+                except:
+                    # print(subfig[0].subplots.nrows, subfig[0].subplots.ncols)
+                    axes = subfig[0].subplots(1, self.ncols, gridspec_kw=dict(wspace=wspace, hspace=hspace, width_ratios=self.width_ratios)) if self.ncols > 1 else [subfig[0].add_subplot(1, 1, 1)]
                 if self.ncols == 1:
                     if hspace is not None:
                         plt.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=None, hspace=hspace)
@@ -109,11 +128,9 @@ class GridPlot:
                     self.occupied_dict[(row, col, 0)] = False
 
             else:
-                print('got to the else for width_ratio_lists')
                 # subfig = self.subfigs[row] if self.nrows > 1 else self.subfigs[0]
                 # print('subfig', subfig)
                 col_subfigs = self.subfigs[row]
-                print('col_subfigs', col_subfigs)
 
                 # col_subfigs = subfig.subfigures(1, len(width_ratio_lists), width_ratios=[sum(wr) for wr in width_ratio_lists],
                 #                                 wspace=wspace, hspace=hspace) if len(width_ratio_lists) > 1 else [subfig]
@@ -130,7 +147,7 @@ class GridPlot:
                         self.ax_grid[(row, ik, jx)] = axes[jx] if len(width_ratio_list) > 1 else axes[0]
                         self.occupied_dict[(row, ik, jx)] = False
         self.subfigs_d = subfigs_d
-        print(subfigs_d.keys())
+
         # else:
         #     for row in range(self.nrows):
         #         subfig = self.subfigs[row] if self.nrows > 1 else self.subfigs[0]
@@ -160,8 +177,10 @@ class GridPlot:
         self.occupied_dict[(row, col, subfig_col)] = occupied#False if (len(ax.lines)==0) and (len(ax.collections)==0) else True
         self.ax_grid_types[(row, col, subfig_col)] = entry_type
 
-    def get_ax_row(self, row):
-        return [self.ax_grid.get((row, col, ), None) for col in range(self.ncols)]
+    def get_ax_row(self, row, typed_only=False):
+        source_keys = self.ax_grid_types.keys() if typed_only is True else self.ax_grid.keys()
+        row_keys = sorted([key for key in source_keys if key[0] == row], key=lambda x: (x[2], x[1]))
+        return [self.ax_grid.get(key, None) for key in row_keys if self.ax_grid.get(key, None) is not None]
 
     def get_subfig(self, row, col=None):
         if col is None:
@@ -192,29 +211,67 @@ class GridPlot:
             if add_hline>_ylims[0] and add_hline<_ylims[1]:
                 ax.axhline(add_hline, color='gray', linestyle='--', linewidth=1)
 
+    def _validated_xlims(self):
+        xlims = self.xlims
+        if xlims is None:
+            return None
+        if not isinstance(xlims, (list, tuple, np.ndarray)):
+            return None
+        if len(xlims) != 2:
+            return None
+        left, right = xlims[0], xlims[1]
+        try:
+            left = float(left)
+            right = float(right)
+        except (TypeError, ValueError):
+            return None
+        if not np.isfinite(left) or not np.isfinite(right):
+            return None
+        return (left, right)
+
+    def _format_latex_label(self, text):
+        if not isinstance(text, str):
+            return text
+        stripped = text.strip()
+        if stripped in ['', ' ']:
+            return text
+        if (stripped.startswith('$$') and stripped.endswith('$$')) or (
+            stripped.startswith('$') and stripped.endswith('$') and stripped.count('$') == 2
+        ):
+            return text
+        return replace_latex_labels(text)
+
     def tidy_rows(self, add_hline=None, ylim_by='central', supylabels=None, keep_ylabels=False,
-                  supylabel_offset=0.04, keep_titles=False, title_pad=10, rlabel_pad=10, llabel_pad=10, title_rows=[0], titley=1):
+                  supylabel_offset=0.04, keep_titles=False, title_pad=10, rlabel_pad=10, llabel_pad=10, title_rows=[0], titley=1,
+                  supylabel_target='first'):
 
         if len(self.subfigs) == 0:
             log_line(logger, "No subfigures available; skipping tidy_rows.", indent=0, log_type="warning")
             return
-        elif len(self.subfigs[0]) == 0:
+
+        typed_keys = sorted(self.ax_grid_types.keys(), key=lambda x: (x[0], x[2], x[1]))
+        typed_axes = [self.ax_grid.get(key, None) for key in typed_keys if self.ax_grid.get(key, None) is not None]
+        if len(typed_axes) == 0:
             log_line(logger, "No axes available; skipping tidy_rows.", indent=0, log_type="warning")
             return
 
-        maxcols = max([col_check_key[1] for col_check_key in self.ax_grid_types.keys()])
+        maxcols = max([col_check_key[1] for col_check_key in typed_keys])
+        valid_xlims = self._validated_xlims()
 
         y_tick_list = []
         if ylim_by =='central':
             ylims = (min(self.ylims), max(self.ylims)) if self.ylims else (None, None)
-            self.subfigs[0].axes[0].set_ylim(ylims)
-            yticks = self.subfigs[0].axes[0].get_yticks()
+            central_ax = typed_axes[0]
+            central_ax.set_ylim(ylims)
+            yticks = central_ax.get_yticks()
             delta_y = np.abs(yticks[1] - yticks[0]) if len(yticks) > 1 else 0
             if ylims[0] is not None:
                 ylims = [ylims[0] - .25 * delta_y, ylims[1]]
 
-                for ik, subfig in enumerate(self.subfigs):
-                    for ip, ax in enumerate(subfig.axes):
+                for ik in range(self.nrows):
+                    row_keys = sorted([key for key in typed_keys if key[0] == ik], key=lambda x: (x[2], x[1]))
+                    row_axes = [self.ax_grid.get(key, None) for key in row_keys if self.ax_grid.get(key, None) is not None]
+                    for ax in row_axes:
                         ax.set_ylim(ylims)
 
                     y_tick_list.append(yticks)
@@ -246,47 +303,86 @@ class GridPlot:
             print('ylim_by cell not implemented yet')
 
 
-        for ik, subfig in enumerate(self.subfigs):
-            ylabel = isotope_ylabel(subfig.axes[0].get_ylabel())
+        for ik in range(self.nrows):
+            row_keys = sorted([key for key in typed_keys if key[0] == ik], key=lambda x: (x[2], x[1]))
+            if len(row_keys) == 0:
+                continue
+
+            row_axes = [self.ax_grid.get(key, None) for key in row_keys if self.ax_grid.get(key, None) is not None]
+            if len(row_axes) == 0:
+                log_line(logger, f"Row {ik} has typed entries but no axes; skipping row.", indent=0, log_type="warning")
+                continue
+            row_subfigs = []
+            if self.subfigs_d is not None and len(self.subfigs_d) > 0:
+                row_subfigs = [self.subfigs_d[key] for key in sorted(self.subfigs_d.keys(), key=lambda x: x[1]) if key[0] == ik]
+            if len(row_subfigs) == 0 and len(self.subfigs) > 0:
+                row_entry = self.subfigs[ik] if self.nrows > 1 else self.subfigs[0]
+                if isinstance(row_entry, Iterable) and not isinstance(row_entry, (str, bytes)):
+                    row_subfigs = list(row_entry)
+                else:
+                    row_subfigs = [row_entry]
+
+            ylabel = isotope_ylabel(row_axes[0].get_ylabel())
             if ylabel in ['', ' ', None]:
-                ylabel = replace_latex_labels(self.default_ylabel)
+                ylabel = self._format_latex_label(self.default_ylabel)
 
             supylabel = ''
             if ylabel is not None:
                 ylabel_parts = ylabel.rsplit('\n', 1)
                 if len(ylabel_parts) > 1:
-                    supylabel = replace_latex_labels(replace_supylabel(ylabel_parts[0]))
+                    supylabel = self._format_latex_label(replace_supylabel(ylabel_parts[0]))
                     ylabel = '\n'.join(ylabel_parts[1:])
                     if supylabels is not False:
                         if len(supylabel) > 0:
                             supylabels = True
 
             if supylabels is True:
-                subfig.supylabel(supylabel, x=supylabel_offset, va='center', ha='center', fontsize='large',
-                                 fontweight='bold')
-                subfig.axes[0].set_ylabel(ylabel, rotation=90, labelpad=10, va='center', fontsize='medium')
+                target_subfigs = []
+                if supylabel_target == 'all':
+                    target_subfigs = row_subfigs
+                elif supylabel_target == 'none':
+                    target_subfigs = []
+                elif isinstance(supylabel_target, int):
+                    if 0 <= supylabel_target < len(row_subfigs):
+                        target_subfigs = [row_subfigs[supylabel_target]]
+                else:
+                    if len(row_subfigs) > 0:
+                        target_subfigs = [row_subfigs[0]]
 
-            subfig_d = {key: self.get_ax(*key) for key in self.ax_grid_types.keys() if key[0] == ik}
-            plot_d = {key: ax for key, ax in subfig_d.items() if self.ax_grid_types[key] in ['plot', 'heatmap']}
+                for subfig in target_subfigs:
+                    if hasattr(subfig, 'supylabel'):
+                        subfig.supylabel(supylabel, x=supylabel_offset, va='center', ha='center', fontsize='large',
+                                         fontweight='bold')
+                row_axes[0].set_ylabel(ylabel, rotation=90, labelpad=10, va='center', fontsize='medium')
+
+            subfig_d = {key: self.ax_grid.get(key, None) for key in row_keys}
+            plot_d = {key: ax for key, ax in subfig_d.items() if (ax is not None) and (self.ax_grid_types[key] in ['plot', 'heatmap'])}
             max_col = max([key[1] for key in subfig_d.keys()])
+            yticks = row_axes[0].get_yticks()
             if ylim_by in ['subfig', 'row']:
                 _ylims = []
                 for key, ax in plot_d.items():
                     n_ylims = ax.get_ylim()
                     _ylims.append(n_ylims[0])
                     _ylims.append(n_ylims[1])
-                _ylims = (min(_ylims), max(_ylims))
+                if len(_ylims) > 0:
+                    _ylims = (min(_ylims), max(_ylims))
 
-                if np.abs(_ylims[1] - _ylims[0]) > 1:
-                    yticks = int_yticks_within_ylim(_ylims[0], _ylims[1])
-                    ylims = (min(min(yticks[1:]), _ylims[0]) - (yticks[1] - yticks[0]) * 0.4,
-                             _ylims[-1] + (yticks[1] - yticks[0]) * 0.4)
+                    if np.abs(_ylims[1] - _ylims[0]) > 1:
+                        yticks = int_yticks_within_ylim(_ylims[0], _ylims[1])
+                        ylims = (min(min(yticks[1:]), _ylims[0]) - (yticks[1] - yticks[0]) * 0.4,
+                                 _ylims[-1] + (yticks[1] - yticks[0]) * 0.4)
+                    else:
+                        yticks = plot_d[list(plot_d.keys())[0]].get_yticks()
+                        ylims = _ylims
 
-                for key, ax in plot_d.items():
-                    ax.set_ylim(ylims)
+                    for key, ax in plot_d.items():
+                        ax.set_ylim(ylims)
                 y_tick_list.append(yticks)
 
             for key, ax in subfig_d.items():
+                if ax is None:
+                    continue
                 if (self.ax_grid_types[key] is None) or (self.ax_grid_types[key] =='spacer'): #
                     ax.set_facecolor('none')
 
@@ -304,7 +400,8 @@ class GridPlot:
 
                 elif self.ax_grid_types[key] == 'cbar':
                     cbar_ylabel = ax.get_ylabel()
-                    ax.set_ylabel(replace_latex_labels(cbar_ylabel), rotation=0, labelpad=10, va='center', fontsize='medium')
+                    if cbar_ylabel not in ['', ' ', None]:
+                        ax.set_ylabel(self._format_latex_label(cbar_ylabel), rotation=0, labelpad=10, va='center', fontsize='medium')
 
                 elif self.ax_grid_types[key] in ['legend', 'annotation']:
                     ax.set_facecolor('none')
@@ -332,7 +429,7 @@ class GridPlot:
                     ax.set_xticklabels([])
                     ax.set_xticks([])
 
-                    ax.set_title(replace_latex_labels(ax.get_title()), fontsize='large', fontweight='bold', pad=title_pad)
+                    ax.set_title(self._format_latex_label(ax.get_title()), fontsize='large', fontweight='bold', pad=title_pad)
 
                 else:
                     if self.ax_grid_types[key] == 'heatmap':
@@ -341,8 +438,8 @@ class GridPlot:
                         ax.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
 
                     else:
-                        if self.xlims is not None:
-                            ax.set_xlim(self.xlims)
+                        if valid_xlims is not None:
+                            ax.set_xlim(valid_xlims)
                         ax.grid(False)
                         ax.tick_params(axis='y', length=6, width=2)
                         ax.tick_params(axis='x', length=6, width=2)
@@ -352,12 +449,13 @@ class GridPlot:
 
                     # tune axis labeling based on content to the right and left
                     left_ax = None
+                    content_neighbor_types = ['plot', 'heatmap']
                     try:
                         left_ax_types = [self.ax_grid_types[(key[0], ip, key[2])] for ip in range(key[1])]
                         for iax, atype in enumerate(reversed(left_ax_types)):
                             if atype in ['spacer']:
                                 pass
-                            elif atype in ['cbar', 'plot', 'annotation', 'legend', 'heatmap']:
+                            elif atype in content_neighbor_types:
                                 left_ax = self.get_ax(key[0], key[1] - (iax + 1), key[2])
                                 break
                             elif atype is None:
@@ -375,7 +473,7 @@ class GridPlot:
                         for iax, atype in enumerate(right_ax_types):
                             if atype in ['spacer']:
                                 pass
-                            elif atype in ['cbar', 'plot', 'heatmap']:
+                            elif atype in content_neighbor_types:
                                 right_ax = self.get_ax(key[0], key[1] + (iax + 1), key[2])
                                 break
                             elif atype is None:
@@ -391,18 +489,22 @@ class GridPlot:
                             if self.grid_type != 'heatmap':
                                 ax.yaxis.tick_right()
                                 ax.spines['right'].set_visible(True)
-                                ax.spines['right'].set_bounds(yticks[0], yticks[-2])
-                                ax.set_yticks(yticks[:-1])
+                                if len(yticks) >= 2:
+                                    ax.spines['right'].set_bounds(yticks[0], yticks[-2])
+                                    ax.set_yticks(yticks[:-1])
                             else:
                                 if (keep_ylabels is False):
                                     ax.set_ylabel('')
                                     ax.set_yticklabels([])
                                     ax.set_yticks([])
 
-                            ylabel = isotope_ylabel(ax.get_ylabel())
-                            if supylabel != '':
-                                ylabel = ylabel.replace(supylabel, '').strip('\n')
-                            ax.set_ylabel(ylabel, rotation=-90, labelpad=rlabel_pad, va='center', fontsize='medium')
+                            axis_ylabel = isotope_ylabel(ax.get_ylabel())
+                            if axis_ylabel in ['', ' ', None]:
+                                axis_ylabel = self._format_latex_label(self.default_ylabel)
+                            if (axis_ylabel is not None) and (supylabel != ''):
+                                axis_ylabel = axis_ylabel.replace(supylabel, '').strip('\n')
+                            axis_ylabel = self._format_latex_label(axis_ylabel)
+                            ax.set_ylabel(axis_ylabel, rotation=-90, labelpad=rlabel_pad, va='center', fontsize='medium')
                             ax.yaxis.set_label_position("right")
 
                         # and we don't want ylabels on left in all cases
@@ -416,14 +518,19 @@ class GridPlot:
                                 ax.set_yticks([])
 
                     if (left_ax is None) or (keep_ylabels is True):
-                        ax.set_ylabel(ylabel, rotation=90, labelpad=llabel_pad, va='center', fontsize='medium')
+                        axis_ylabel = isotope_ylabel(ax.get_ylabel())
+                        if axis_ylabel in ['', ' ', None]:
+                            axis_ylabel = self._format_latex_label(self.default_ylabel)
+                        axis_ylabel = self._format_latex_label(axis_ylabel)
+                        ax.set_ylabel(axis_ylabel, rotation=90, labelpad=llabel_pad, va='center', fontsize='medium')
 
                         if self.grid_type != 'heatmap':
                             ax.yaxis.tick_left()
                             ax.spines['right'].set_visible(False)
                             ax.spines['left'].set_visible(True)
-                            ax.spines['left'].set_bounds(yticks[0], yticks[-2])
-                            ax.set_yticks(yticks[:-1])
+                            if len(yticks) >= 2:
+                                ax.spines['left'].set_bounds(yticks[0], yticks[-2])
+                                ax.set_yticks(yticks[:-1])
 
 
                     # tune content labeling based on content below
@@ -436,10 +543,10 @@ class GridPlot:
                     except Exception as e:
                         pass
 
-                    if len(self.xlims) == 2:
+                    if valid_xlims is not None:
                         # this is probably not needed as it is a check on presence of data which is handled by ax_grid_types
                         if ((len(ax.lines) == 0) and (len(ax.collections) == 0)) is False:
-                            ax.set_xlim(self.xlims)
+                            ax.set_xlim(valid_xlims)
 
                     if (((len(ax.lines) == 0) and (len(ax.collections) == 0)) is True) or (
                             below_ax is not None):  # (ik < len(self.subfigs) - 1):
@@ -453,16 +560,18 @@ class GridPlot:
                         xlabel = ax.get_xlabel()
                         xlabel = xlabel.replace('_', ' ')
                         ax.set_xlabel(xlabel)
-                        if (self.xlims is not None) and (len(self.xlims)>1):
-                            xticks = int_yticks_within_ylim(self.xlims[0], self.xlims[-1])
+                        if valid_xlims is not None:
+                            xticks = int_yticks_within_ylim(valid_xlims[0], valid_xlims[1])
                         if self.ax_grid_types[key] =='plot':
                             try:
-                                ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
+                                if len(xticks) >= 2:
+                                    ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
                             except:
                                 xticks = ax.get_xticks()
-                                ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
+                                if len(xticks) >= 2:
+                                    ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
 
-                    title_text = replace_latex_labels(ax.get_title())
+                    title_text = self._format_latex_label(ax.get_title())
                     if keep_titles == 'individual':
                         ax.set_title(title_text, fontsize='large', fontweight='bold', pad=title_pad)
                     else:
@@ -550,15 +659,16 @@ class GridPlot:
             #     subfig.axes[-1].set_yticks(yticks[:-1])
 
         if self.title is not None:
-            self.fig.suptitle(replace_latex_labels(self.title), fontsize='x-large', fontweight='bold', y=titley)
+            self.fig.suptitle(self._format_latex_label(self.title), fontsize='x-large', fontweight='bold', y=titley)
         plt.tight_layout()
 
     def add_legend(self, bbox_to_anchor=(1.05, 1), loc='upper left'):
         handles = self.line_handles + self.scatter_handles
         labels = self.line_labels + self.scatter_labels
-        labels = [replace_latex_labels(label) for label in labels]
-        ax_legend = self.subfigs[0].axes[-1] if self.nrows > 1 else self.subfigs[0].axes[0]
-        if handles:
+        labels = [self._format_latex_label(label) for label in labels]
+        row_axes = self.get_ax_row(0, typed_only=False)
+        if handles and len(row_axes) > 0:
+            ax_legend = row_axes[-1]
             ax_legend.legend(handles, labels, bbox_to_anchor=bbox_to_anchor, loc=loc)
 
 
@@ -674,7 +784,19 @@ class GridPlot:
                 #     else:
                 #         ax.remove()#('off')
 
-        self.subfigs = [subfig for subfig in self.subfigs if len(subfig.axes) > 0]
+        def _has_axes(entry):
+            if hasattr(entry, 'axes'):
+                try:
+                    return len(entry.axes) > 0
+                except Exception:
+                    return False
+            if isinstance(entry, Iterable) and not isinstance(entry, (str, bytes)):
+                for subentry in entry:
+                    if _has_axes(subentry):
+                        return True
+            return False
+
+        self.subfigs = [subfig for subfig in self.subfigs if _has_axes(subfig)]
 
 
     # def plot_all(self, y_var='delta_rho', palette=None, scatter=False, surr_lines=False, stats_only=True):
@@ -714,15 +836,33 @@ class SummaryGrid(GridPlot):
 
 
     def make_colorbar(self):
-        self.cbar_ax = self.get_ax(0, self.ncols - 1)
+        # print('norm', self.norm)
+        active_axes = set(self.ax_grid.values())
+        if self.cbar_ax not in active_axes:
+            self.cbar_ax = None
+
+        if self.cbar_ax is None:
+            cbar_keys = [key for key, entry_type in self.ax_grid_types.items() if entry_type == 'cbar']
+            if len(cbar_keys) > 0:
+                self.cbar_ax = self.ax_grid.get(cbar_keys[0], None)
+        if self.cbar_ax is None:
+            self.cbar_ax = self.get_ax(0, self.ncols - 1)
         if self.cbar_ax is None:
             return
+
         # Ensure we never stack multiple ColorbarBase artists on the same axis.
         self.cbar_ax.cla()
+        cmap = self.palette
+        if cmap is None:
+            return
+        if isinstance(cmap, str):
+            cmap = mpl.colormaps.get_cmap(cmap)
+        elif not isinstance(cmap, mpl.colors.Colormap):
+            cmap = mpl.colors.LinearSegmentedColormap.from_list('summary_grid_palette', list(cmap))
 
         if self.discrete_lag_mode is True and len(self.discrete_lag_values) > 0:
             lag_vals = sorted([int(v) for v in self.discrete_lag_values])
-            lag_info = build_discrete_lag_palette(lag_vals, palette=self.palette)
+            lag_info = build_discrete_lag_palette(lag_vals, palette=cmap)
             n = len(lag_info['lags'])
             cmap = lag_info['cmap']
             norm = lag_info['norm']
@@ -738,9 +878,26 @@ class SummaryGrid(GridPlot):
             self.cbar_ax.set_ylabel(self.cbar_label if self.cbar_label else 'Optimal lag', labelpad=10)
             return
 
-        norm = mpl.colors.Normalize(vmin=min(self.vlims), vmax=max(self.vlims))
-        mpl.colorbar.ColorbarBase(self.cbar_ax, cmap=self.palette, norm=norm)
-        self.cbar_ax.set_ylim(self.vlims)
+        if self.norm is not None:
+            norm = self.norm
+        else:
+            has_vlims = isinstance(self.vlims, (list, tuple, np.ndarray)) and len(self.vlims) == 2
+            if has_vlims:
+                norm = mpl.colors.Normalize(vmin=self.vlims[0], vmax=self.vlims[1])
+            elif isinstance(self.vlims, (list, tuple, np.ndarray)) and len(self.vlims) > 0:
+                norm = mpl.colors.Normalize(vmin=min(self.vlims), vmax=max(self.vlims))
+            else:
+                print('No valid vlims provided for colorbar; skipping colorbar creation.')
+                return
+
+        mpl.colorbar.ColorbarBase(self.cbar_ax, cmap=cmap, norm=norm)
+        norm_vmin = getattr(norm, 'vmin', None)
+        norm_vmax = getattr(norm, 'vmax', None)
+        if norm_vmin is not None and norm_vmax is not None:
+            self.vlims = (norm_vmin, norm_vmax)
+            self.cbar_ax.set_ylim([norm_vmin, norm_vmax])
+        elif isinstance(self.vlims, (list, tuple, np.ndarray)) and len(self.vlims) == 2:
+            self.cbar_ax.set_ylim(self.vlims)
         self.cbar_ax.set_ylabel(self.cbar_label, labelpad=10)
 
     def create_custom_legend(self, percent_threshold=0.95, bbox_to_anchor = (0,.85)):
