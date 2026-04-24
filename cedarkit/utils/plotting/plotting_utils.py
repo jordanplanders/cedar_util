@@ -55,21 +55,171 @@ def font_resizer(context='paper', multiplier=1.0):
 
         sns.set_context(rc=mpl.rcParams)
 
+import pyarrow.compute as pc
 
-def check_palette_syntax(palette, table):
+def check_palette_syntax(palette, table, logger=None, default_color='gray'):
     relation_col = 'relation'
     if relation_col not in table.schema.names:
         relation_col = 'relation_0' if 'relation_0' in table.schema.names else None
-    relations = pc.unique(table[relation_col]).to_pylist()
-    rel_word = 'causes' if any('cause' in r for r in relations) else 'influences'
-    palette_rel_word = 'causes' if any('cause' in r for r in palette.keys()) else 'influences'
-    # new_palette = {}
-    # for k, v in palette.items():
-    #     new_key = k.replace(palette_rel_word, rel_word)
-    #     print(f"Replacing palette key '{k}' with '{new_key}'")
-    #     new_palette[new_key] = v
-    palette = {k.replace(palette_rel_word, rel_word): v for k, v in palette.items()}
+    if relation_col is None:
+        raise ValueError("No relation column found in table")
+
+    relations = [r for r in pc.unique(table[relation_col]).to_pylist() if r is not None]
+    palette = dict(palette)
+
+    def parse_relation(rel):
+        rel = rel.strip()
+        for word in (' influences ', ' causes ', ' reconstructs '):
+            if word in rel:
+                x, y = rel.split(word, 1)
+                return x.strip(), word.strip(), y.strip()
+        if '->' in rel:
+            x, y = rel.split('->', 1)
+            return x.strip(), '->', y.strip()
+        return None, None, None
+
+    for rel in relations:
+        if rel in palette:
+            continue
+
+        x, kind, y = parse_relation(rel)
+        if kind is None:
+            palette[rel] = default_color
+            if logger:
+                logger.warning(f"Unrecognized relation syntax: {rel}")
+            continue
+
+        if kind in ('reconstructs', '->'):
+            candidates = [
+                f'{x} reconstructs {y}',
+                f'{x} -> {y}',
+                f'{y} influences {x}',
+                f'{y} causes {x}',
+            ]
+        elif kind == 'influences':
+            candidates = [
+                f'{x} influences {y}',
+                f'{x} causes {y}',
+            ]
+        else:  # causes
+            candidates = [
+                f'{x} causes {y}',
+                f'{x} influences {y}',
+            ]
+
+        match = next((k for k in candidates if k in palette), None)
+        palette[rel] = palette[match] if match else default_color
+
+        if match is None and logger:
+            logger.warning(f"Relation '{rel}' not found in palette keys: {list(palette.keys())}")
+
     return palette
+
+
+# def check_palette_syntax(palette, table):
+#     relation_col = 'relation'
+#     if relation_col not in table.schema.names:
+#         relation_col = 'relation_0' if 'relation_0' in table.schema.names else None
+#     relations = pc.unique(table[relation_col]).to_pylist()
+#
+#     reconstructs_word = 'reconstructs' if any('->' or 'reconstructs' in r for r in relations) else None
+#     rel_word = 'causes' if any('cause' or 'influence' in r for r in relations) else None
+#
+#     if reconstructs_word is None and rel_word is not None:
+#         palette_rel_word = 'causes' if any('cause' in r for r in palette.keys()) else 'influences'
+#         # new_palette = {}
+#         # for k, v in palette.items():
+#         #     new_key = k.replace(palette_rel_word, rel_word)
+#         #     print(f"Replacing palette key '{k}' with '{new_key}'")
+#         #     new_palette[new_key] = v
+#         palette = {k.replace(palette_rel_word, rel_word): v for k, v in palette.items()}
+#         for rel in relations:
+#             if rel not in palette:
+#                 palette[rel.replace(palette_rel_word, rel_word)] = 'gray'  # default color for missing keys
+#                 logger.warning(f"Relation '{rel}' from data not found in palette keys: {list(palette.keys())}")
+#
+#     elif reconstructs_word is not None:
+#         palette_recon_word = 'reconstructs' if any('reconstructs' in r for r in palette.keys()) else '->'
+#         # new_palette = {}
+#         # for k, v in palette.items():
+#         #     new_key = k.replace(palette_recon_word, reconstructs_word)
+#         #     print(f"Replacing palette key '{k}' with '{new_key}'")
+#         #     new_palette[new_key] = v
+#         palette = {k.replace(palette_recon_word, reconstructs_word): v for k, v in palette.items()}
+#         for rel in relations:
+#             if rel not in palette:
+#                 palette[rel.replace(palette_recon_word, reconstructs_word)] = 'gray'  # default color for missing keys
+#                 logger.warning(f"Relation '{rel}' from data not found in palette keys: {list(palette.keys())}")
+#     return palette
+
+
+def build_discrete_lag_palette(lags, palette='coolwarm'):
+    """Build a stable discrete lag palette and normalization for integer lag bins."""
+    lag_values = sorted({int(lag) for lag in lags if lag is not None and np.isfinite(lag)})
+    if len(lag_values) == 0:
+        lag_values = [0]
+
+    if isinstance(palette, mpl.colors.Colormap):
+        base_cmap = palette
+    elif isinstance(palette, (list, tuple)) and len(palette) > 0:
+        if len(palette) >= len(lag_values):
+            colors = list(palette[:len(lag_values)])
+            cmap = mpl.colors.ListedColormap(colors)
+            n = len(lag_values)
+            boundaries = np.arange(-0.5, n + 0.5, 1)
+            norm = mpl.colors.BoundaryNorm(boundaries, cmap.N)
+            lag_to_index = {lag: idx for idx, lag in enumerate(lag_values)}
+            index_to_lag = {idx: lag for lag, idx in lag_to_index.items()}
+            return {
+                'lags': lag_values,
+                'lag_to_index': lag_to_index,
+                'index_to_lag': index_to_lag,
+                'cmap': cmap,
+                'norm': norm,
+            }
+        base_cmap = mpl.cm.get_cmap('coolwarm')
+    else:
+        base_cmap = mpl.cm.get_cmap(palette if isinstance(palette, str) else 'coolwarm')
+
+    # Sign-aware diverging mapping:
+    # - negative lags interpolate from min_lag -> 0 over [0.0, 0.5]
+    # - positive lags interpolate from 0 -> max_lag over [0.5, 1.0]
+    # - zero lag maps to center 0.5
+    min_lag = min(lag_values)
+    max_lag = max(lag_values)
+    colors = []
+    for lag in lag_values:
+        if lag == 0:
+            pos = 0.5
+        elif lag < 0:
+            if min_lag < 0:
+                # Linear from min_lag -> 0 maps to 0.0 -> 0.5.
+                pos = 0.5 * ((lag - min_lag) / (0 - min_lag))
+            else:
+                # Defensive fallback when no negative domain exists.
+                pos = 0.5
+        else:
+            if max_lag > 0:
+                # Linear from 0 -> max_lag maps to 0.5 -> 1.0.
+                pos = 0.5 + 0.5 * (lag / max_lag)
+            else:
+                # Defensive fallback when no positive domain exists.
+                pos = 0.5
+        colors.append(base_cmap(float(np.clip(pos, 0.0, 1.0))))
+
+    cmap = mpl.colors.ListedColormap(colors)
+    n = len(lag_values)
+    boundaries = np.arange(-0.5, n + 0.5, 1)
+    norm = mpl.colors.BoundaryNorm(boundaries, cmap.N)
+    lag_to_index = {lag: idx for idx, lag in enumerate(lag_values)}
+    index_to_lag = {idx: lag for lag, idx in lag_to_index.items()}
+    return {
+        'lags': lag_values,
+        'lag_to_index': lag_to_index,
+        'index_to_lag': index_to_lag,
+        'cmap': cmap,
+        'norm': norm,
+    }
 
 
 _SEPS = [r"\s*->\s*", r"\s*→\s*", r"\s*=>\s*", r"\s+causes\s+", r"\s+influences\s+"]
@@ -246,21 +396,31 @@ def isotope_ylabel(isotope):
     return isotope
 
 def replace_latex_labels(label):
-    if '$\delta' not in label:
-        label = label.replace('delta', r'$\delta$')
-    # label = label.replace('excess', r'$d$-excess')
-    # label = label.replace('D', r'$D$')
-    # label = label.replace('O', r'$O$')
-    label = label.replace('Wm2',r'W/m$^{2}$')
-    label = label.replace('d18O',r'$\delta^{18}O$')
-    if '$^18' not in label:
-        label = label.replace('^18', r'$^{18}$')
-    if '$^2' not in label:
-        label = label.replace('^2', r'$^{2}$')
-    if '$\Delta' not in label:
-        label = label.replace('Delta', r'$\Delta$')
-    if '$\tau' not in label:
-        label = label.replace('tau', r'$\tau$')
-    if '$\rho' not in label:
-        label = label.replace('rho', r'$\rho$')
-    return label
+    if not isinstance(label, str):
+        return label
+
+    text = label
+
+    # Normalize malformed math wrappers before token replacement.
+    text = re.sub(r'\${2,}', '$', text)
+
+    # Keep already-math-mode chunks unchanged by replacing only bare-word tokens.
+    token_rules = {
+        'delta': r'$\\delta$',
+        'Delta': r'$\\Delta$',
+        'tau': r'$\\tau$',
+        'rho': r'$\\rho$',
+    }
+    for token, repl in token_rules.items():
+        pattern = rf'(?<![A-Za-z\\]){token}(?![A-Za-z])'
+        text = re.sub(pattern, repl, text)
+
+    # Specific scientific aliases.
+    text = re.sub(r'(?<![A-Za-z\\])d18O(?![A-Za-z])', r'$\\delta^{18}O$', text)
+    text = re.sub(r'(?<![A-Za-z])Wm2(?![A-Za-z])', r'W/m$^{2}$', text)
+
+    # Exponent helpers outside existing math commands.
+    text = re.sub(r'(?<![\$\\])\^18', r'$^{18}$', text)
+    text = re.sub(r'(?<![\$\\])\^2', r'$^{2}$', text)
+
+    return text
