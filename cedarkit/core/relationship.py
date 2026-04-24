@@ -23,6 +23,8 @@ class RelationshipSide:
         self.lag = None
         self.surr_rx_outperforming_frac = None
         self.surr_ry_outperforming_frac = None
+        self.peak_start = None
+        self.peak_end = None
 
 
         # self.surr_rx
