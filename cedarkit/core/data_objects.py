@@ -14,6 +14,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import numpy as np
 from types import SimpleNamespace
+import polars as pl
 
 # import cedarkit.utils.paths
 # from cedarkit.utils.paths import set_calc_path, set_output_path, template_replace, check_exists
@@ -297,6 +298,9 @@ class RunConfig:
         self.surr_num=None
         self.surr_var=None
         self.output_path=None
+        self.output_format='parquet'
+        self.output_query=None
+        self.output_params=None
         self.relation=None
 
         self.pset_id=None
@@ -370,7 +374,8 @@ class RunConfig:
 
     @property
     def traits(self):
-        return [key for key in self.__dict__.keys() if key not in ['output_path', 'log']]
+        return [key for key in self.__dict__.keys()
+                if key not in ['output_path', 'output_format', 'output_query', 'output_params', 'log']]
 
     def to_dict(self):
         return {key: value for key, value in self.__dict__.items() if key in self.traits and value is not None}
@@ -384,7 +389,20 @@ class RunConfig:
         file_path = self.output_path[0]
         log_line(self.log, ['pulling from', file_path], indent=0, log_type="info")
 
-        # print('pulling from', file_path)
+        if self.output_format == 'sqlite':
+            out = Output(
+                full=None,
+                path=file_path,
+                query=self.output_query,
+                params=self.output_params,
+                format='sqlite',
+                tmp_dir=self.tmp_dir,
+            )
+            table = out.table
+            if to_table:
+                return table
+            return OutputCollection(in_table=table, grp_specs=self, outtype='full', tmp_dir=self.tmp_dir)
+
         dset = ds.dataset(str(file_path), format="parquet")
         all_traits = self.to_dict()
 
@@ -522,8 +540,7 @@ class DataGroup:
         # print('Data group tmp dir', self.tmp_dir)
 
 
-    # @TODO revise so checks for existence before returning relevant rows
-    def _internal_query(self, dset, query_config=None):
+    def _internal_query_v1(self, dset, query_config=None):
         '''
         query_config: RunConfig object with specific values to filter on
         dset: pyarrow dataset object
@@ -626,29 +643,17 @@ class DataGroup:
         return file_group_config, table
 
 
-    def get_files(self, config, output_path, file_name_pattern=None, source='parquet'):
-        '''
-        Retrieve files matching the group traits from the output directory.
-        config: ProjectConfig object with project-level configurations
-        output_path: Path object representing the output directory
-        file_name_pattern: optional string pattern for file names
-        source: string indicating the file format (default 'parquet')
-
-        Populates:
-            self.file_list: list of RunConfig objects for each file in the group
-            self.internal_traits: dictionary of traits determined during file retrieval
-            self.missing_files: dictionary of files that were expected but not found
-
-        '''
+    def _get_files_v1(self, config, output_path, file_name_pattern=None, source='parquet'):
+        '''Legacy per-file implementation kept for shadow comparison. Use get_files instead.'''
 
         grp_path_template = config.get_dynamic_attr("output.{var}.dir_structure", source)  # config.output.grp_dir_structure
         if file_name_pattern is None:
-            file_name_pattern = config.output.parquet.file_name#get_dynamic_attr("output.parquet.file_name{var}", "file_name_pattern")  # config.output.file_name_pattern
+            file_name_pattern = config.get_dynamic_attr("output.{var}.file_format", source)
 
         grp_path_template_filled, replaced_parts = template_replace(grp_path_template, self.static_traits)
         log_line(self.log, ['DataGroup get_files: grp_path_template_filled:', grp_path_template_filled], indent=0, log_type="debug")
 
-        # print('DataGroup get_files: grp_path_template_filled:', grp_path_template_filled, file=sys.stdout, flush=True)
+        print('DataGroup get_files: grp_path_template_filled:', grp_path_template_filled, file=sys.stdout, flush=True)
 
         known_sections = grp_path_template_filled.split('/')
         bracket_locations = [ik for ik, section in enumerate(known_sections) if '{' in section]
@@ -677,10 +682,8 @@ class DataGroup:
                                           '.ipynb' not in filename) and ('.png' not in filename)]
 
                 for file_path in filtered_files:
-                    log_line(self.log, ['DataGroup get_files: checking file', file_path],
-                             indent=0, log_type="debug")
+                    log_line(self.log, ['DataGroup get_files: checking file', file_path], indent=0, log_type="debug")
 
-                    # print('DataGroup get_files: checking file', file_path, file=sys.stdout, flush=True)
                     try:
                         file_traits = extract_from_pattern(file_path.name, file_name_pattern)
                         file_dict = {**{key: self.static_traits[key] for key in replaced_parts}, **file_traits}
@@ -707,7 +710,7 @@ class DataGroup:
                                 log_line(self.log, ['get_files: loaded dataset for file', file_path],
                                          indent=0, log_type="debug")
                                 # print('get_files: loaded dataset for file', file_path, file=sys.stdout, flush=True)
-                                groupconfig_file, filtered_table  = self._internal_query(loaded_ds,
+                                groupconfig_file, filtered_table  = self._internal_query_v1(loaded_ds,
                                                                                     query_config=new_config)
                                 log_line(self.log, ['get_files: filtered table rows after query', filtered_table.num_rows, 'for file', file_path,'fail status:', fail],
                                          indent=0, log_type="debug")
@@ -774,24 +777,244 @@ class DataGroup:
                  indent=0, log_type="info")
         self.missing_files.update(missing_files)
 
-    def pull_output(self, summary=True, full=False):
-        '''
-        Pull output data from the group files.
-        '''
+    def _pull_output_v1(self, summary=True, full=False):
+        '''Legacy per-file PyArrow implementation kept for shadow comparison. Use pull_output instead.'''
         tables = []
-        print('pulling from datagrp')
-
         for ij, groupconfig_file in enumerate(self.file_list):
             filtered_table = groupconfig_file.pull_output(to_table=True)
-            # print('pulled table rows', filtered_table.num_rows)
-            log_line(self.log, ['pulled table rows', filtered_table.num_rows],
-                     indent=0, log_type="info")
-            if check_return(filtered_table) is True: tables.append(filtered_table)
-
-        return OutputCollection(grp_specs=self.get_group_config(), in_table=tables, tmp_dir=self.tmp_dir) #if (len(tables) > 0) else None
+            log_line(self.log, ['pulled table rows', filtered_table.num_rows], indent=0, log_type="info")
+            if check_return(filtered_table) is True:
+                tables.append(filtered_table)
+        return OutputCollection(grp_specs=self.get_group_config(), in_table=tables, tmp_dir=self.tmp_dir)
 
     def get_metadata_as_iterables(self):
         self.metadata = {key: correct_iterable(value) for key, value in self.metadata.items()}
+
+    def get_files(self, config, output_path, file_name_pattern=None, source='parquet',
+                  discovery_fn=None, row_query_fn=None):
+        '''
+        Retrieve files matching the group traits from the output directory.
+
+        Parquet mode (default): uses a batch Polars scan for content verification.
+
+        SQLite mode: pass discovery_fn and row_query_fn callables.
+            discovery_fn(output_path, grp_d) -> list[dict]  — one trait dict per combination
+            row_query_fn(trait_dict) -> (sql_str, params_dict)
+
+        Populates:
+            self.file_list: list of RunConfig objects for each file in the group
+            self.internal_traits: dictionary of traits determined during file retrieval
+            self.missing_files: dictionary of files that were expected but not found
+        '''
+        if discovery_fn is not None:
+            combinations = discovery_fn(output_path, self.grp_d)
+            log_line(self.log, ['get_files: sqlite combinations discovered', len(combinations)],
+                     indent=0, log_type="info")
+            file_list = []
+            nonstatic_updates = defaultdict(set)
+            for trait_dict in combinations:
+                new_config = self.parent_config.copy()
+                new_config.populate(trait_dict)
+                new_config.output_path = [output_path]
+                new_config.output_format = 'sqlite'
+                new_config.output_query, new_config.output_params = row_query_fn(trait_dict)
+                file_list.append(new_config)
+                for key in new_config.traits:
+                    for val in (correct_iterable(getattr(new_config, key)) or []):
+                        nonstatic_updates[key].add(val)
+            nonstatic_updates = {k: list(v) for k, v in nonstatic_updates.items()}
+            for key, values in nonstatic_updates.items():
+                if len(values) == 1:
+                    self.static_traits[key] = values[0]
+                else:
+                    self.nonstatic_traits[key] = values
+            self.file_list = file_list
+            log_line(self.log, ['get_files: sqlite file_list populated', len(file_list)],
+                     indent=0, log_type="info")
+            return
+
+        grp_path_template = config.get_dynamic_attr("output.{var}.dir_structure", source)
+        if file_name_pattern is None:
+            file_name_pattern = config.get_dynamic_attr("output.{var}.file_format", source)
+
+        grp_path_template_filled, replaced_parts = template_replace(grp_path_template, self.static_traits)
+        log_line(self.log, ['DataGroup get_files: grp_path_template_filled:', grp_path_template_filled], indent=0, log_type="debug")
+
+        known_sections = grp_path_template_filled.split('/')
+        bracket_locations = [ik for ik, section in enumerate(known_sections) if '{' in section]
+        if len(bracket_locations) > 0:
+            _dir_known_section = '/'.join(known_sections[:bracket_locations[0]])
+        else:
+            _dir_known_section = '/'.join(known_sections)
+
+        self.internal_traits = {key: value for key, value in self.static_traits.items() if key not in replaced_parts}
+        for key in self.parent_config.traits:
+            if key not in self.static_traits and key not in self.nonstatic_traits:
+                self.internal_traits[key] = None
+
+        merged_unaccounted_d = {**self.internal_traits, **self.nonstatic_traits}
+
+        # --- Phase 1: filename-only discovery, no file I/O ---
+        candidates = []  # (file_path, file_dict, new_config)
+        nonstatic_updates = defaultdict(set)
+
+        for dirpath, _, filenames in os.walk(output_path / _dir_known_section):
+            file_dir = Path(dirpath)
+            if not filenames:
+                continue
+            filtered_files = [
+                file_dir / fn for fn in filenames
+                if (f'.{source}' in fn)
+                and 'registry' not in fn
+                and fn != 'results.parquet'
+                and '.md' not in fn
+                and '.yaml' not in fn
+                and '.ipynb' not in fn
+                and '.png' not in fn
+            ]
+            for file_path in filtered_files:
+                log_line(self.log, [f'DataGroup get_files: checking file {file_path}'], indent=0, log_type="debug")
+                try:
+                    file_traits = extract_from_pattern(file_path.name, file_name_pattern)
+                    file_dict = {**{key: self.static_traits[key] for key in replaced_parts}, **file_traits}
+
+                    fail = False
+                    for trait_key in merged_unaccounted_d:
+                        if not fail and trait_key in file_dict:
+                            if (merged_unaccounted_d[trait_key] is not None
+                                    and file_dict[trait_key] not in correct_iterable(merged_unaccounted_d[trait_key])):
+                                fail = True
+                            else:
+                                nonstatic_updates[trait_key].add(file_dict[trait_key])
+
+                    if not fail:
+                        new_config = self.parent_config.copy()
+                        for key in self.nonstatic_traits:
+                            if key not in file_dict or file_dict[key] is None:
+                                file_dict[key] = self.nonstatic_traits[key]
+                        new_config.populate(file_dict)
+                        candidates.append((file_path, file_dict, new_config))
+
+                except ValueError as e:
+                    log_line(self.log, e, indent=0, log_type="error")
+
+        log_line(self.log, [f'get_files: filename candidates {len(candidates)}'], indent=0, log_type="debug")
+
+        file_list = []
+        missing_files = {}
+
+        if candidates:
+            # --- Phase 2: one batch Polars scan across all candidates ---
+            candidate_paths = [str(fp) for fp, _, _ in candidates]
+
+            first_schema = pl.scan_parquet(candidate_paths[0]).collect_schema()
+            schema_names = set(first_schema.names())
+
+            trait_cols = [c for c in self.parent_config.traits if c in schema_names]
+
+            filter_exprs = [
+                pl.col(k).is_in(correct_iterable(v))
+                for k, v in self.grp_d.items()
+                if v is not None and k in schema_names
+            ]
+
+            lf = pl.scan_parquet(candidate_paths, include_file_paths="_source")
+            if not trait_cols:
+                raise ValueError(
+                    f"get_files: none of parent_config traits found in parquet schema {schema_names}. "
+                    "Cannot limit column reads."
+                )
+            lf = lf.select(trait_cols + ["_source"])
+
+            if not filter_exprs:
+                raise ValueError(
+                    f"get_files: no filter expressions could be built from grp_d {self.grp_d} "
+                    "against schema. Refusing unfiltered scan."
+                )
+            lf = lf.filter(reduce(operator.and_, filter_exprs))
+
+            result = lf.collect()
+
+
+            # --- Phase 3: build RunConfigs from collected result ---
+            if result is not None:
+                found_sources = set(result["_source"].to_list())
+
+                for file_path, file_dict, new_config in candidates:
+                    src = str(file_path)
+                    if src not in found_sources:
+                        log_line(self.log, ['get_files: no matching rows for{file_path}'], indent=0, log_type="error")
+                        missing_files[file_path] = new_config
+                        continue
+
+                    file_rows = result.filter(pl.col("_source") == src)
+
+                    # replicate _internal_query_v1 grp_info logic
+                    grp_info = {}
+                    for key in self.parent_config.traits:
+                        if key in file_rows.columns:
+                            grp_info[key] = file_rows[key].unique().to_list()
+
+                    for key, value in new_config.to_dict().items():
+                        if value is None:
+                            continue
+                        grp_info[key] = list(
+                            set(correct_iterable(value)) | set(grp_info.get(key, []))
+                        )
+
+                    try:
+                        file_group_config = RunConfig(grp_info, tmp_dir=self.tmp_dir)
+                    except Exception as e:
+                        log_line(self.log, ['get_files: RunConfig build failed for', file_path, e], indent=0, log_type="error")
+                        missing_files[file_path] = new_config
+                        continue
+
+                    file_group_config.output_path = [file_path]
+                    log_line(self.log, ['get_files: matched file', file_path], indent=0, log_type="info")
+                    file_list.append(file_group_config)
+
+                    for key in file_group_config.traits:
+                        for val in (correct_iterable(getattr(file_group_config, key)) or []):
+                            nonstatic_updates[key].add(val)
+
+        nonstatic_updates = {key: list(value) for key, value in nonstatic_updates.items()}
+        for key, values in nonstatic_updates.items():
+            if len(values) == 1:
+                self.static_traits[key] = values[0]
+            else:
+                self.nonstatic_traits[key] = values
+
+        self.file_list = file_list
+        log_line(self.log, ['DataGroup get_files: found', len(self.file_list), 'files'], indent=0, log_type="info")
+        self.missing_files.update(missing_files)
+
+    def pull_output(self, summary=True, full=False):
+        '''
+        Pull output data from the group files using per-file Polars scans.
+        Memory-bounded: each file is read, appended, and released before the next.
+        '''
+        tables = []
+        for groupconfig_file in self.file_list:
+            if not groupconfig_file.output_path:
+                continue
+            file_path = groupconfig_file.output_path[0]
+            all_traits = groupconfig_file.to_dict()
+
+            lf = pl.scan_parquet(str(file_path))
+            schema_names = set(lf.collect_schema().names())
+            filter_exprs = [
+                pl.col(k).is_in(correct_iterable(v))
+                for k, v in all_traits.items()
+                if v is not None and k in schema_names
+            ]
+            if filter_exprs:
+                lf = lf.filter(reduce(operator.and_, filter_exprs))
+            tbl = lf.collect().to_arrow()
+            log_line(self.log, ['pulled table rows', tbl.num_rows], indent=0, log_type="info")
+            if tbl.num_rows > 0:
+                tables.append(tbl)
+
+        return OutputCollection(grp_specs=self.get_group_config(), in_table=tables, tmp_dir=self.tmp_dir)
 
     def get_group_config(self):
         # return GroupConfig({**self.static_traits, **self.nonstatic_traits, **self.internal_traits})
@@ -893,12 +1116,13 @@ class Output:
 
         if self.path is None:
             unique_scratch_id = uuid.uuid4().hex
-            unique_scratch_id = f'{unique_scratch_id}__{tag}'
+            unique_scratch_id = f'{tag}__{unique_scratch_id}'
             scratch_path = self.tmp_dir / f'{unique_scratch_id}.parquet'
             self.path = scratch_path
 
         if '__' not in str(self.path) and len(tag) >0:
-            self.path = str(self.path).replace('.parquet', f'__{tag}.parquet')
+            name = self.path.stem
+            self.path = str(self.path).replace('name', f'{tag}__{name}')
         pq.write_table(self._full, self.path)
 
 
@@ -1087,6 +1311,8 @@ class OutputCollection:
              tables.append(getattr(other_output_collection, attr))
         print(len(tables), 'tables to combine for', attr)
         tables = [tbl for tbl in tables if tbl is not None]
+        if len(tables) == 0:
+            return self
         col_types = {col: tables[0]._full.schema.field(col).type for col in tables[0]._full.schema.names}
 
         tables_full = []
@@ -1158,213 +1384,213 @@ class OutputCollection:
             return self.relationships.r2
         raise ValueError(f"Unsupported relationship_id '{relationship_id}'. Use 'r1' or 'r2'.")
 
-    @staticmethod
-    def _resolve_lag_constraint(lag_constraint=None, x_cutoff=0):
-        if lag_constraint is None:
-            return lambda lag: True
-        if callable(lag_constraint):
-            return lag_constraint
-        if isinstance(lag_constraint, (int, float)):
-            return lambda lag: lag > lag_constraint
-        if isinstance(lag_constraint, str):
-            if lag_constraint == 'pos':
-                return lambda lag: lag > x_cutoff
-            if lag_constraint == 'nonneg':
-                return lambda lag: lag >= x_cutoff
-            if lag_constraint == 'neg':
-                return lambda lag: lag < x_cutoff
-            if lag_constraint == 'nonpos':
-                return lambda lag: lag <= x_cutoff
-        raise ValueError("lag_constraint must be None, callable, numeric threshold, or one of: pos/nonneg/neg/nonpos")
+    # @staticmethod
+    # def _resolve_lag_constraint(lag_constraint=None, x_cutoff=0):
+    #     if lag_constraint is None:
+    #         return lambda lag: True
+    #     if callable(lag_constraint):
+    #         return lag_constraint
+    #     if isinstance(lag_constraint, (int, float)):
+    #         return lambda lag: lag > lag_constraint
+    #     if isinstance(lag_constraint, str):
+    #         if lag_constraint == 'pos':
+    #             return lambda lag: lag > x_cutoff
+    #         if lag_constraint == 'nonneg':
+    #             return lambda lag: lag >= x_cutoff
+    #         if lag_constraint == 'neg':
+    #             return lambda lag: lag < x_cutoff
+    #         if lag_constraint == 'nonpos':
+    #             return lambda lag: lag <= x_cutoff
+    #     raise ValueError("lag_constraint must be None, callable, numeric threshold, or one of: pos/nonneg/neg/nonpos")
 
-    @staticmethod
-    def _normalize_lag_range(lag_range=None):
-        if lag_range is None:
-            return None
-        if not isinstance(lag_range, (tuple, list)) or len(lag_range) != 2:
-            raise ValueError("lag_range must be None or a (min_lag, max_lag) tuple/list")
-        lo, hi = lag_range
-        if lo is None and hi is None:
-            return None
-        if lo is not None:
-            lo = int(lo)
-        if hi is not None:
-            hi = int(hi)
-        if (lo is not None) and (hi is not None) and (lo > hi):
-            raise ValueError("lag_range lower bound cannot be greater than upper bound")
-        return lo, hi
+    # @staticmethod
+    # def _normalize_lag_range(lag_range=None):
+    #     if lag_range is None:
+    #         return None
+    #     if not isinstance(lag_range, (tuple, list)) or len(lag_range) != 2:
+    #         raise ValueError("lag_range must be None or a (min_lag, max_lag) tuple/list")
+    #     lo, hi = lag_range
+    #     if lo is None and hi is None:
+    #         return None
+    #     if lo is not None:
+    #         lo = int(lo)
+    #     if hi is not None:
+    #         hi = int(hi)
+    #     if (lo is not None) and (hi is not None) and (lo > hi):
+    #         raise ValueError("lag_range lower bound cannot be greater than upper bound")
+    #     return lo, hi
 
-    @staticmethod
-    def _apply_lag_range(df, lag_range):
-        if lag_range is None or len(df) == 0:
-            return df
-        lo, hi = lag_range
-        out = df
-        if lo is not None:
-            out = out[out['lag'] >= lo]
-        if hi is not None:
-            out = out[out['lag'] <= hi]
-        return out
+    # @staticmethod
+    # def _apply_lag_range(df, lag_range):
+    #     if lag_range is None or len(df) == 0:
+    #         return df
+    #     lo, hi = lag_range
+    #     out = df
+    #     if lo is not None:
+    #         out = out[out['lag'] >= lo]
+    #     if hi is not None:
+    #         out = out[out['lag'] <= hi]
+    #     return out
 
-    @staticmethod
-    def _select_optimal_from_group(grp_df, metric_col):
-        if len(grp_df) == 0:
-            return {
-                'selected_lag': np.nan,
-                'selected_rho': np.nan,
-                'tied_lags': [],
-                'has_tie': False,
-            }
-        top_val = grp_df[metric_col].max()
-        tied = grp_df[np.isclose(grp_df[metric_col], top_val)]['lag'].astype(int).unique().tolist()
-        tied = sorted(tied)
-        selected = sorted(tied, key=lambda v: (abs(v), v))[0]
-        return {
-            'selected_lag': int(selected),
-            'selected_rho': float(top_val),
-            'tied_lags': tied,
-            'has_tie': len(tied) > 1,
-        }
+    # @staticmethod
+    # def _select_optimal_from_group(grp_df, metric_col):
+    #     if len(grp_df) == 0:
+    #         return {
+    #             'selected_lag': np.nan,
+    #             'selected_rho': np.nan,
+    #             'tied_lags': [],
+    #             'has_tie': False,
+    #         }
+    #     top_val = grp_df[metric_col].max()
+    #     tied = grp_df[np.isclose(grp_df[metric_col], top_val)]['lag'].astype(int).unique().tolist()
+    #     tied = sorted(tied)
+    #     selected = sorted(tied, key=lambda v: (abs(v), v))[0]
+    #     return {
+    #         'selected_lag': int(selected),
+    #         'selected_rho': float(top_val),
+    #         'tied_lags': tied,
+    #         'has_tie': len(tied) > 1,
+    #     }
 
-    @staticmethod
-    def _compute_local_peak_sharpness(grp_df, selected_lag, metric_col='rho_metric', halfwidth=3):
-        if pd.isna(selected_lag):
-            return np.nan
-        center = grp_df[grp_df['lag'] == selected_lag]
-        if len(center) == 0:
-            return np.nan
-        rho_l = float(center[metric_col].iloc[0])
-        if np.isclose(rho_l, 0.0):
-            return np.nan
-        wmask = (grp_df['lag'] >= selected_lag - halfwidth) & (grp_df['lag'] <= selected_lag + halfwidth) & (grp_df['lag'] != selected_lag)
-        neighbors = grp_df.loc[wmask, metric_col].dropna()
-        if len(neighbors) == 0:
-            return np.nan
-        sharpness = (rho_l - float(neighbors.mean())) / rho_l
-        return float(np.clip(sharpness, 0.0, 1.0))
+    # @staticmethod
+    # def _compute_local_peak_sharpness(grp_df, selected_lag, metric_col='rho_metric', halfwidth=3):
+    #     if pd.isna(selected_lag):
+    #         return np.nan
+    #     center = grp_df[grp_df['lag'] == selected_lag]
+    #     if len(center) == 0:
+    #         return np.nan
+    #     rho_l = float(center[metric_col].iloc[0])
+    #     if np.isclose(rho_l, 0.0):
+    #         return np.nan
+    #     wmask = (grp_df['lag'] >= selected_lag - halfwidth) & (grp_df['lag'] <= selected_lag + halfwidth) & (grp_df['lag'] != selected_lag)
+    #     neighbors = grp_df.loc[wmask, metric_col].dropna()
+    #     if len(neighbors) == 0:
+    #         return np.nan
+    #     sharpness = (rho_l - float(neighbors.mean())) / rho_l
+    #     return float(np.clip(sharpness, 0.0, 1.0))
 
-    def extract_optimal_lag_table(
-        self,
-        relationship_id='r1',
-        metric='maxlibsize_rho',
-        lag_constraint=None,
-        lag_range=None,
-        x_cutoff=0,
-        include_constrained=True,
-        constrained_suffix='pos',
-        peak_window_halfwidth=3,
-    ):
-        """
-        Return per-(E,tau) optimal lag rows selected by top metric value across lags.
+    # def extract_optimal_lag_table(
+    #     self,
+    #     relationship_id='r1',
+    #     metric='maxlibsize_rho',
+    #     lag_constraint=None,
+    #     lag_range=None,
+    #     x_cutoff=0,
+    #     include_constrained=True,
+    #     constrained_suffix='pos',
+    #     peak_window_halfwidth=3,
+    # ):
+    #     """
+    #     Return per-(E,tau) optimal lag rows selected by top metric value across lags.
+    #
+    #     Uses delta_rho_stats real rows (surr_var == 'neither'), aggregates to
+    #     per-(E,tau,lag), captures ties, and applies deterministic tie-breaking:
+    #     smallest absolute lag then smallest lag.
+    #     """
+    #     if self.delta_rho_stats is None:
+    #         self.calc_delta_rho(stats_out=True)
+    #     self.delta_rho_stats.get_table()
+    #
+    #     relationship = self._resolve_relationship_name(relationship_id=relationship_id)
+    #     real_df = self.delta_rho_stats.real.to_pandas()
+    #     if len(real_df) == 0:
+    #         return pd.DataFrame(columns=['E', 'tau', 'selected_lag', 'selected_rho', 'tied_lags'])
+    #     if metric not in real_df.columns:
+    #         raise KeyError(f"Metric column '{metric}' not found in delta_rho_stats.real")
+    #
+    #     real_df = real_df[(real_df['relation'] == relationship) & (real_df['surr_var'] == 'neither')].copy()
+    #     if len(real_df) == 0:
+    #         return pd.DataFrame(columns=['E', 'tau', 'selected_lag', 'selected_rho', 'tied_lags'])
+    #
+    #     lag_metric_df = (
+    #         real_df.groupby(['E', 'tau', 'lag'], as_index=False)[metric]
+    #         .mean()
+    #         .rename(columns={metric: 'rho_metric'})
+    #     )
+    #     lag_metric_df['lag'] = lag_metric_df['lag'].astype(int)
+    #     lag_range = self._normalize_lag_range(lag_range)
+    #     lag_metric_df = self._apply_lag_range(lag_metric_df, lag_range).copy()
+    #     if len(lag_metric_df) == 0:
+    #         return pd.DataFrame(columns=['E', 'tau', 'selected_lag', 'selected_rho', 'tied_lags'])
+    #
+    #     out_rows = []
+    #     for (E_val, tau_val), grp in lag_metric_df.groupby(['E', 'tau']):
+    #         optimal = self._select_optimal_from_group(grp, metric_col='rho_metric')
+    #         row = {
+    #             'E': E_val,
+    #             'tau': tau_val,
+    #             'selected_lag': optimal['selected_lag'],
+    #             'selected_rho': optimal['selected_rho'],
+    #             'tied_lags': optimal['tied_lags'],
+    #             'has_tie': optimal['has_tie'],
+    #         }
+    #         row['peak_sharpness'] = self._compute_local_peak_sharpness(
+    #             grp,
+    #             selected_lag=optimal['selected_lag'],
+    #             metric_col='rho_metric',
+    #             halfwidth=peak_window_halfwidth,
+    #         )
+    #
+    #         if include_constrained:
+    #             lag_filter = self._resolve_lag_constraint(lag_constraint=lag_constraint or 'pos', x_cutoff=x_cutoff)
+    #             constrained_grp = grp[grp['lag'].apply(lag_filter)].copy()
+    #             constrained_opt = self._select_optimal_from_group(constrained_grp, metric_col='rho_metric')
+    #             row[f'selected_lag_{constrained_suffix}'] = constrained_opt['selected_lag']
+    #             row[f'selected_rho_{constrained_suffix}'] = constrained_opt['selected_rho']
+    #             row[f'tied_lags_{constrained_suffix}'] = constrained_opt['tied_lags']
+    #             row[f'has_tie_{constrained_suffix}'] = constrained_opt['has_tie']
+    #
+    #         out_rows.append(row)
+    #
+    #     out_df = pd.DataFrame(out_rows)
+    #     if len(out_df) == 0:
+    #         return out_df
+    #
+    #     # Attach significance-style fractions using legacy ResultGrid semantics:
+    #     # surrogate members are compared by their own best lag (per E,tau,surr_var,surr_num),
+    #     # not restricted to the real selected lag.
+    #     surr_df = self.delta_rho_stats.surrogate.to_pandas()
+    #     if len(surr_df) > 0:
+    #         surr_df = surr_df[surr_df['relation'] == relationship].copy()
+    #         surr_agg = (
+    #             surr_df.groupby(['E', 'tau', 'lag', 'surr_var', 'surr_num'], as_index=False)[metric]
+    #             .mean()
+    #             .rename(columns={metric: 'rho_metric'})
+    #         )
+    #         surr_agg['lag'] = surr_agg['lag'].astype(int)
+    #         surr_agg = self._apply_lag_range(surr_agg, lag_range).copy()
+    #         surr_best = (
+    #             surr_agg.groupby(['E', 'tau', 'surr_var', 'surr_num'], as_index=False)['rho_metric']
+    #             .max()
+    #         )
+    #         var_x = self.relationships.var_x
+    #         var_y = self.relationships.var_y
+    #         surr_stats = []
+    #         for _, row in out_df.iterrows():
+    #             E_val, tau_val = row['E'], row['tau']
+    #             selected_rho = row['selected_rho']
+    #             sub = surr_best[(surr_best['E'] == E_val) & (surr_best['tau'] == tau_val)]
+    #             rx = sub[sub['surr_var'] == var_x]
+    #             ry = sub[sub['surr_var'] == var_y]
+    #             rx_n = len(rx['surr_num'].unique())
+    #             ry_n = len(ry['surr_num'].unique())
+    #             rx_frac = float((rx['rho_metric'] > selected_rho).sum() / rx_n) if rx_n > 0 else None
+    #             ry_frac = float((ry['rho_metric'] > selected_rho).sum() / ry_n) if ry_n > 0 else None
+    #             surr_stats.append((rx_frac, ry_frac))
+    #         out_df['surr_rx_outperforming_frac'] = [v[0] for v in surr_stats]
+    #         out_df['surr_ry_outperforming_frac'] = [v[1] for v in surr_stats]
+    #     else:
+    #         out_df['surr_rx_outperforming_frac'] = None
+    #         out_df['surr_ry_outperforming_frac'] = None
+    #
+    #     out_df.sort_values(['tau', 'E'], inplace=True)
+    #     out_df.reset_index(drop=True, inplace=True)
+    #     self.delta_rho_stats.clear_table()
+    #     return out_df
 
-        Uses delta_rho_stats real rows (surr_var == 'neither'), aggregates to
-        per-(E,tau,lag), captures ties, and applies deterministic tie-breaking:
-        smallest absolute lag then smallest lag.
-        """
-        if self.delta_rho_stats is None:
-            self.calc_delta_rho(stats_out=True)
-        self.delta_rho_stats.get_table()
-
-        relationship = self._resolve_relationship_name(relationship_id=relationship_id)
-        real_df = self.delta_rho_stats.real.to_pandas()
-        if len(real_df) == 0:
-            return pd.DataFrame(columns=['E', 'tau', 'selected_lag', 'selected_rho', 'tied_lags'])
-        if metric not in real_df.columns:
-            raise KeyError(f"Metric column '{metric}' not found in delta_rho_stats.real")
-
-        real_df = real_df[(real_df['relation'] == relationship) & (real_df['surr_var'] == 'neither')].copy()
-        if len(real_df) == 0:
-            return pd.DataFrame(columns=['E', 'tau', 'selected_lag', 'selected_rho', 'tied_lags'])
-
-        lag_metric_df = (
-            real_df.groupby(['E', 'tau', 'lag'], as_index=False)[metric]
-            .mean()
-            .rename(columns={metric: 'rho_metric'})
-        )
-        lag_metric_df['lag'] = lag_metric_df['lag'].astype(int)
-        lag_range = self._normalize_lag_range(lag_range)
-        lag_metric_df = self._apply_lag_range(lag_metric_df, lag_range).copy()
-        if len(lag_metric_df) == 0:
-            return pd.DataFrame(columns=['E', 'tau', 'selected_lag', 'selected_rho', 'tied_lags'])
-
-        out_rows = []
-        for (E_val, tau_val), grp in lag_metric_df.groupby(['E', 'tau']):
-            optimal = self._select_optimal_from_group(grp, metric_col='rho_metric')
-            row = {
-                'E': E_val,
-                'tau': tau_val,
-                'selected_lag': optimal['selected_lag'],
-                'selected_rho': optimal['selected_rho'],
-                'tied_lags': optimal['tied_lags'],
-                'has_tie': optimal['has_tie'],
-            }
-            row['peak_sharpness'] = self._compute_local_peak_sharpness(
-                grp,
-                selected_lag=optimal['selected_lag'],
-                metric_col='rho_metric',
-                halfwidth=peak_window_halfwidth,
-            )
-
-            if include_constrained:
-                lag_filter = self._resolve_lag_constraint(lag_constraint=lag_constraint or 'pos', x_cutoff=x_cutoff)
-                constrained_grp = grp[grp['lag'].apply(lag_filter)].copy()
-                constrained_opt = self._select_optimal_from_group(constrained_grp, metric_col='rho_metric')
-                row[f'selected_lag_{constrained_suffix}'] = constrained_opt['selected_lag']
-                row[f'selected_rho_{constrained_suffix}'] = constrained_opt['selected_rho']
-                row[f'tied_lags_{constrained_suffix}'] = constrained_opt['tied_lags']
-                row[f'has_tie_{constrained_suffix}'] = constrained_opt['has_tie']
-
-            out_rows.append(row)
-
-        out_df = pd.DataFrame(out_rows)
-        if len(out_df) == 0:
-            return out_df
-
-        # Attach significance-style fractions using legacy ResultGrid semantics:
-        # surrogate members are compared by their own best lag (per E,tau,surr_var,surr_num),
-        # not restricted to the real selected lag.
-        surr_df = self.delta_rho_stats.surrogate.to_pandas()
-        if len(surr_df) > 0:
-            surr_df = surr_df[surr_df['relation'] == relationship].copy()
-            surr_agg = (
-                surr_df.groupby(['E', 'tau', 'lag', 'surr_var', 'surr_num'], as_index=False)[metric]
-                .mean()
-                .rename(columns={metric: 'rho_metric'})
-            )
-            surr_agg['lag'] = surr_agg['lag'].astype(int)
-            surr_agg = self._apply_lag_range(surr_agg, lag_range).copy()
-            surr_best = (
-                surr_agg.groupby(['E', 'tau', 'surr_var', 'surr_num'], as_index=False)['rho_metric']
-                .max()
-            )
-            var_x = self.relationships.var_x
-            var_y = self.relationships.var_y
-            surr_stats = []
-            for _, row in out_df.iterrows():
-                E_val, tau_val = row['E'], row['tau']
-                selected_rho = row['selected_rho']
-                sub = surr_best[(surr_best['E'] == E_val) & (surr_best['tau'] == tau_val)]
-                rx = sub[sub['surr_var'] == var_x]
-                ry = sub[sub['surr_var'] == var_y]
-                rx_n = len(rx['surr_num'].unique())
-                ry_n = len(ry['surr_num'].unique())
-                rx_frac = float((rx['rho_metric'] > selected_rho).sum() / rx_n) if rx_n > 0 else None
-                ry_frac = float((ry['rho_metric'] > selected_rho).sum() / ry_n) if ry_n > 0 else None
-                surr_stats.append((rx_frac, ry_frac))
-            out_df['surr_rx_outperforming_frac'] = [v[0] for v in surr_stats]
-            out_df['surr_ry_outperforming_frac'] = [v[1] for v in surr_stats]
-        else:
-            out_df['surr_rx_outperforming_frac'] = None
-            out_df['surr_ry_outperforming_frac'] = None
-
-        out_df.sort_values(['tau', 'E'], inplace=True)
-        out_df.reset_index(drop=True, inplace=True)
-        self.delta_rho_stats.clear_table()
-        return out_df
-
-    # Backward-friendly alias for callers that expect a "calc_*" name.
-    def calc_optimal_lag_table(self, **kwargs):
-        return self.extract_optimal_lag_table(**kwargs)
+    # # Backward-friendly alias for callers that expect a "calc_*" name.
+    # def calc_optimal_lag_table(self, **kwargs):
+    #     return self.extract_optimal_lag_table(**kwargs)
 
     def _draw_metric_df(self, source, table_attr='real'):
 
