@@ -54,6 +54,34 @@ def get_parser():
         default='csv',
         help="Routing entry format for run outputs (default: csv)",
     )
+    parser.add_argument(
+        '--source',
+        dest='source',
+        choices=['parquet', 'sqlite'],
+        default='parquet',
+        help="Consolidated output format to consume (default: parquet)",
+    )
+    parser.add_argument(
+        '--metric-lag-mode',
+        dest='metric_lag_mode',
+        type=str,
+        default=None,
+        help="Lag mode for calc_metrics: 'pos', 'neg', or an integer lag value",
+    )
+    parser.add_argument(
+        '--smoothing-window',
+        dest='smoothing_window',
+        type=int,
+        default=1,
+        help="Smoothing window for calc_metrics (default: 1)",
+    )
+    parser.add_argument(
+        '--metric-relationship',
+        dest='metric_relationship',
+        choices=['r1', 'r2'],
+        default=None,
+        help="Relationship to use for calc_metrics: 'r1', 'r2', or None for both",
+    )
 
     return parser
 
