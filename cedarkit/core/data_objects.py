@@ -1052,22 +1052,36 @@ class Output:
     @property
     def surrogate(self):
         self.get_table()
-        if 'surr_var' in self._full.schema.names:
-            mask = pc.invert(pc.equal(self._full['surr_var'], 'neither'))
-            surr_table = self._full.filter(mask)
+        if 'surr_var' in self._full.collect_schema().names():
+            surr_table = self._full.filter(pl.col("surr_var") != "neither")
             return surr_table
         else:
             return None
 
+        # self.get_table()
+        # if 'surr_var' in self._full.schema.names:
+        #     mask = pc.invert(pc.equal(self._full['surr_var'], 'neither'))
+        #     surr_table = self._full.filter(mask)
+        #     return surr_table
+        # else:
+        #     return None
+
     @property
     def real(self):
         self.get_table()
-        if 'surr_var' in self._full.schema.names:
-            mask = pc.equal(self._full['surr_var'], 'neither')
-            real_table = self._full.filter(mask)
-            return real_table
+        if 'surr_var' in self._full.collect_schema().names():
+            real_df = self._full.filter(pl.col("surr_var") == "neither")#.collect()
         else:
-            return self._full
+            real_df = self._full#.collect()
+        return real_df
+
+        # self.get_table()
+        # if 'surr_var' in self._full.schema.names:
+        #     mask = pc.equal(self._full['surr_var'], 'neither')
+        #     real_table = self._full.filter(mask)
+        #     return real_table
+        # else:
+        #     return self._full
 
     @property
     def table(self):
@@ -1077,14 +1091,17 @@ class Output:
     @property
     def full(self):
         self.get_table()
+        # return self._full
         return self._full
 
     def get_table(self, format=None):
         if self._full is None:
             if format is None:
-                format = self.format if self.format is not None else 'parquet'
+                stored_format = getattr(self, "format", None)
+                format = stored_format if stored_format is not None else 'parquet'
             if format == 'parquet':
-                self._full = ds.dataset(str(self.path), format="parquet").to_table()
+                self._full = pl.scan_parquet(str(self.path))
+                # self._full = ds.dataset(str(self.path), format="parquet").to_table()
             elif format == "sqlite":
                 if self.path is None:
                     raise ValueError("Output.path is required for format='sqlite'.")
@@ -1751,12 +1768,12 @@ class OutputCollection:
 
 
     def calc_lags_peaks(self, relationship_id='r1', surr_var='neither', y_col='maxlibsize_rho', smoothing_window=1):
-        # if relationship_id == 'r1':
-        #     relationship = self.relationships.r1
-        # elif relationship_id == 'r2':
-        #     relationship = self.relationships.r2
+        if relationship_id == 'r1':
+            relationship = self.relationships.r1
+        elif relationship_id == 'r2':
+            relationship = self.relationships.r2
 
-        relationship = self._resolve_relationship_name(relationship_id=relationship_id)
+        # relationship = self._resolve_relationship_name(relationship_id=relationship_id)
         # print(f'calculating candidate peaks for relationship {relationship} with surrogate variable {surr_var} and metric {y_col} (smoothing window={smoothing_window})')
         self.delta_rho_full.get_table()
         gb_real_df = self._draw_metric_df(self.delta_rho_full.real, 'real')
