@@ -572,8 +572,16 @@ class GridPlot:
                                     ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
 
                     title_text = self._format_latex_label(ax.get_title())
-                    if keep_titles == 'individual':
-                        ax.set_title(title_text, fontsize='large', fontweight='bold', pad=title_pad)
+                    if keep_titles is not False:
+                        fontweight = 'bold'
+                        if isinstance(keep_titles, str) is True:
+                            if 'individual' in keep_titles:
+                                if 'normal' in keep_titles:
+                                    fontweight= 'normal'
+                                else:
+                                    fontweight = 'bold'
+
+                        ax.set_title(title_text, fontsize='large', fontweight=fontweight, pad=title_pad)
                     else:
                         if ik in title_rows:
                             ax.set_title(title_text, fontsize='large', fontweight='bold', pad=title_pad)
