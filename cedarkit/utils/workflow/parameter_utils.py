@@ -462,19 +462,6 @@ def get_assessed_param_picks(proj_dir, output_location, comb_df,config=None,para
 
 
 
-    # for ik, pset in enumerate(parameter_ds):
-    #     if append is not True:
-    #         candidates = remove_already_completed(pset, output_location, performance_consideration=False,
-    #                                               existence_consideration=False, source=source, max_libsize=375, config=config)
-    #         # print('checking', ik, 'of', len(parameter_ds), pset, 'candidates', candidates)
-    #         if candidates is None:
-    #             done.append(pset)
-    #         else:
-    #             torun += candidates
-    #     else:
-    #         # print('append', pset)
-    #         torun.append(pset)
-
     to_run_df = pd.DataFrame.from_records(torun)
     to_run_df['to_run'] = True
     done_df = pd.DataFrame.from_records(done)
@@ -620,14 +607,6 @@ def process_params_group(arg_tuple, write_mode='a'):
                 new_row = [unique_id] + list(values) + [col_var_id, target_var_id]# Create a unique ID based on the current time
                 writer.writerow(new_row)
                 time.sleep(0.001)  # Sleep for a millisecond to ensure unique IDs
-
-    # print(f"CSV file {param_csv} has been created.")
-    # param_df = pd.read_csv(param_csv)
-    # print(f"{param_csv} has been read and has length: {len(param_df)}", file=sys.stdout, flush=True)
-    # param_df = param_df.drop_duplicates(subset=param_df.columns.difference(['id']), keep='first')
-    # print(f"{param_csv} duplicates have been dropped and now has length: {len(param_df)}", file=sys.stdout, flush=True)
-
-    # param_df.to_csv(param_csv, index=False)
 
 
 def tidy_up_params(param_csv_paths, keep='first'):
