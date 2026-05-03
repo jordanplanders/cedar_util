@@ -122,33 +122,6 @@ def resolve_consolidated_dir(
     return _join_dir_structure(fmt_base, str(dir_structure) if dir_structure is not None else "")
 
 
-
-# def resolve_consolidated_dir(calc_location: Path, cfg, fmt: str | None, *, include_dir_structure: bool = False) -> Path:
-#     if fmt is None or fmt == "auto":
-#         entry = _entry_format(cfg)
-#         fmt = _consolidated_format(cfg, entry) or entry or "sqlite"
-#     elif fmt == "sqlite":
-#         # Honor consolidated format overrides even when sqlite is requested.
-#         entry = _entry_format(cfg)
-#         fmt = _consolidated_format(cfg, entry) or fmt
-#
-#     output_sub = None
-#     try:
-#         output_sub = cfg.local.output_dir
-#     except Exception:
-#         output_sub = "output"
-#     base = Path(calc_location) / str(output_sub)
-#     block = _fmt_block(cfg, "output", fmt)
-#     if block is None:
-#         return base / fmt
-#     fmt_dir = getattr(block, "dir", fmt) or fmt
-#     fmt_base = base / fmt_dir
-#     if not include_dir_structure:
-#         return fmt_base
-#     dir_structure = getattr(block, "dir_structure", "")
-#     return _join_dir_structure(fmt_base, str(dir_structure) if dir_structure is not None else "")
-
-
 def set_output_path(args, calc_location, config):
     output_dir = None
     if args is not None:
