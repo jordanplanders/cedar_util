@@ -6,6 +6,7 @@ import numpy as np
 import seaborn as sns
 import pyarrow as pa
 import pyarrow.compute as pc
+import polars as pl
 import logging
 logger = logging.getLogger(__name__)
 
@@ -57,14 +58,24 @@ def font_resizer(context='paper', multiplier=1.0):
 
 import pyarrow.compute as pc
 
+
 def check_palette_syntax(palette, table, logger=None, default_color='gray'):
+    if isinstance(table, pa.Table):
+        schema_names = table.schema.names
+    else:
+        schema_names = table.collect_schema().names()
+
     relation_col = 'relation'
-    if relation_col not in table.schema.names:
-        relation_col = 'relation_0' if 'relation_0' in table.schema.names else None
+    if relation_col not in schema_names:
+        relation_col = 'relation_0' if 'relation_0' in schema_names else None
     if relation_col is None:
         raise ValueError("No relation column found in table")
 
-    relations = [r for r in pc.unique(table[relation_col]).to_pylist() if r is not None]
+    if isinstance(table, pa.Table):
+        relations = [r for r in pc.unique(table[relation_col]).to_pylist() if r is not None]
+    else:
+        relations = [r for r in table.select(relation_col).unique().collect()[relation_col].to_list() if r is not None]
+
     palette = dict(palette)
 
     def parse_relation(rel):
@@ -101,7 +112,7 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
                 f'{x} influences {y}',
                 f'{x} causes {y}',
             ]
-        else:  # causes
+        else:
             candidates = [
                 f'{x} causes {y}',
                 f'{x} influences {y}',
@@ -114,6 +125,68 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
             logger.warning(f"Relation '{rel}' not found in palette keys: {list(palette.keys())}")
 
     return palette
+
+# def check_palette_syntax(palette, table, logger=None, default_color='gray'):
+#     relation_col = 'relation'
+#     if relation_col not in table.schema.names:
+#         relation_col = 'relation_0' if 'relation_0' in table.schema.names else None
+#     if relation_col is None:
+#         raise ValueError("No relation column found in table")
+#
+#     relations = [r for r in pc.unique(table[relation_col]).to_pylist() if r is not None]
+#     palette = dict(palette)
+#     # print(palette)
+#
+#     def parse_relation(rel):
+#         rel = rel.strip()
+#         # print(f"Parsing relation: '{rel}'")
+#         for word in (' influences ', ' causes ', ' reconstructs '):
+#             if word in rel:
+#                 x, y = rel.split(word, 1)
+#                 return x.strip(), word.strip(), y.strip()
+#         if '->' in rel:
+#             x, y = rel.split('->', 1)
+#             return x.strip(), '->', y.strip()
+#         return None, None, None
+#
+#     for rel in relations:
+#         # print(rel)
+#         if rel in palette:
+#             continue
+#
+#         x, kind, y = parse_relation(rel)
+#         # print(x, kind, y)
+#         if kind is None:
+#             palette[rel] = default_color
+#             if logger:
+#                 logger.warning(f"Unrecognized relation syntax: {rel}")
+#             continue
+#
+#         if kind in ('reconstructs', '->'):
+#             candidates = [
+#                 f'{x} reconstructs {y}',
+#                 f'{x} -> {y}',
+#                 f'{y} influences {x}',
+#                 f'{y} causes {x}',
+#             ]
+#         elif kind == 'influences':
+#             candidates = [
+#                 f'{x} influences {y}',
+#                 f'{x} causes {y}',
+#             ]
+#         else:  # causes
+#             candidates = [
+#                 f'{x} causes {y}',
+#                 f'{x} influences {y}',
+#             ]
+#
+#         match = next((k for k in candidates if k in palette), None)
+#         palette[rel] = palette[match] if match else default_color
+#
+#         if match is None and logger:
+#             logger.warning(f"Relation '{rel}' not found in palette keys: {list(palette.keys())}")
+#
+#     return palette
 
 
 # def check_palette_syntax(palette, table):
@@ -258,72 +331,114 @@ def infer_var_names_from_relation(table: pa.Table, relation_col: str = "relation
 
 
 def add_relation_s_inferred(
-        table: pa.Table,
+        table,
         x_var_name: str = None,
         y_var_name: str = None,
         surr_col: str = "surr_var",
         relation_col: str = "relation_0",
-) -> pa.Table:
+):
+    if isinstance(table, pa.Table):
+        # print('table schema names', table.schema.names)
+        if relation_col not in table.schema.names:
+            relation_col = "relation"
+        if relation_col not in table.schema.names or surr_col not in table.schema.names:
+            raise KeyError(f"Need columns '{relation_col}' and '{surr_col}'")
 
-    # print('table schema names', table.schema.names)
-    if relation_col not in table.schema.names:
-        relation_col = "relation"
-    if relation_col not in table.schema.names or surr_col not in table.schema.names:
-        raise KeyError(f"Need columns '{relation_col}' and '{surr_col}'")
+        # Prefer explicit names, then table metadata columns, then relation inference.
+        if x_var_name is None and "x_var" in table.schema.names:
+            x_vals = [v for v in pc.unique(table["x_var"]).to_pylist() if v is not None and str(v) != ""]
+            if len(x_vals) == 1:
+                x_var_name = str(x_vals[0])
+        if y_var_name is None and "y_var" in table.schema.names:
+            y_vals = [v for v in pc.unique(table["y_var"]).to_pylist() if v is not None and str(v) != ""]
+            if len(y_vals) == 1:
+                y_var_name = str(y_vals[0])
 
-    # Prefer explicit names, then table metadata columns, then relation inference.
-    if x_var_name is None and "x_var" in table.schema.names:
-        x_vals = [v for v in pc.unique(table["x_var"]).to_pylist() if v is not None and str(v) != ""]
-        if len(x_vals) == 1:
-            x_var_name = str(x_vals[0])
-    if y_var_name is None and "y_var" in table.schema.names:
-        y_vals = [v for v in pc.unique(table["y_var"]).to_pylist() if v is not None and str(v) != ""]
-        if len(y_vals) == 1:
-            y_var_name = str(y_vals[0])
+        if x_var_name is None or y_var_name is None:
+            x_var_name, y_var_name = infer_var_names_from_relation(table, relation_col)
+        # print(f"Inferred variable names: '{x_var_name}', '{y_var_name}'")
+        table = table.combine_chunks()
 
-    if x_var_name is None or y_var_name is None:
-        x_var_name, y_var_name = infer_var_names_from_relation(table, relation_col)
-    # print(f"Inferred variable names: '{x_var_name}', '{y_var_name}'")
-    table = table.combine_chunks()
+        rel = table[relation_col]
+        surr = table[surr_col]
 
-    rel = table[relation_col]
-    surr = table[surr_col]
+        # Masks
+        m_neither = pc.equal(surr, "neither")
+        m_both = pc.equal(surr, "both")
+        m_x = pc.equal(surr, x_var_name)
+        m_y = pc.equal(surr, y_var_name)
 
-    # Masks
-    m_neither = pc.equal(surr, "neither")
-    m_both = pc.equal(surr, "both")
-    m_x = pc.equal(surr, x_var_name)
-    m_y = pc.equal(surr, y_var_name)
+        # Variants
+        rel_x = pc.replace_substring(rel, x_var_name, f"{x_var_name} (surr) ")
+        rel_y = pc.replace_substring(rel, y_var_name, f"{y_var_name} (surr) ")
+        rel_both = pc.replace_substring(rel_x, y_var_name, f"{y_var_name} (surr) ")
 
-    # Variants
-    rel_x = pc.replace_substring(rel, x_var_name, f"{x_var_name} (surr) ")
-    rel_y = pc.replace_substring(rel, y_var_name, f"{y_var_name} (surr) ")
-    rel_both = pc.replace_substring(rel_x, y_var_name, f"{y_var_name} (surr) ")
-
-    # 2) Use nested if_else instead of case_when (robust with chunked/contiguous)
-    rel_s = pc.if_else(
-        m_neither, rel,
-        pc.if_else(
-            m_both, rel_both,
+        # 2) Use nested if_else instead of case_when (robust with chunked/contiguous)
+        rel_s = pc.if_else(
+            m_neither, rel,
             pc.if_else(
-                m_x, rel_x,
-                pc.if_else(m_y, rel_y, rel)
+                m_both, rel_both,
+                pc.if_else(
+                    m_x, rel_x,
+                    pc.if_else(m_y, rel_y, rel)
+                )
             )
         )
-    )
-    rel_s = pc.replace_substring(rel_s, "  ", " ")#.str.lstrip().str.rstrip()
-    rel_s = pc.ascii_trim(rel_s, ' ')
+        rel_s = pc.replace_substring(rel_s, "  ", " ")#.str.lstrip().str.rstrip()
+        rel_s = pc.ascii_trim(rel_s, ' ')
 
-    # table.append_column(f"{relation_col}_0", rel)
+        # table.append_column(f"{relation_col}_0", rel)
 
-    # Rename original relation -> relation_0, then insert new relation next to it
-    cols = [ f"{c}_0" if (c =='relation') and (relation_col=='relation')  else c for c in table.schema.names]
-    # print('end', cols)
-    table = table.rename_columns(cols)
-    # i0 = table.schema.get_field_index(f"{relation_col}_0")
-    table = table.append_column(relation_col, rel_s)
-    # print('after append col', table.schema.names)
-    # table[relation_col] = pc.ascii_trim(table[relation_col], ' ')
+        # Rename original relation -> relation_0, then insert new relation next to it
+        cols = [ f"{c}_0" if (c =='relation') and (relation_col=='relation')  else c for c in table.schema.names]
+        # print('end', cols)
+        table = table.rename_columns(cols)
+        # i0 = table.schema.get_field_index(f"{relation_col}_0")
+        table = table.append_column(relation_col, rel_s)
+        # print('after append col', table.schema.names)
+        # table[relation_col] = pc.ascii_trim(table[relation_col], ' ')
+    else:
+        schema_names = table.collect_schema().names() if isinstance(table, pl.LazyFrame) else table.columns
+
+        if relation_col not in schema_names:
+            relation_col = "relation"
+        if relation_col not in schema_names or surr_col not in schema_names:
+            raise KeyError(f"Need columns '{relation_col}' and '{surr_col}'")
+
+        if x_var_name is None or y_var_name is None:
+            raise ValueError("x_var_name and y_var_name must be provided for the Polars branch")
+
+        if relation_col == "relation":
+            table = table.rename({"relation": "relation_0"})
+            source_relation_col = "relation_0"
+            target_relation_col = "relation"
+        else:
+            source_relation_col = relation_col
+            target_relation_col = relation_col
+
+        rel = pl.col(source_relation_col)
+        surr = pl.col(surr_col)
+
+        rel_s = (
+            pl.when(surr == "neither").then(rel)
+            .when(surr == "both").then(
+                rel
+                .str.replace_all(x_var_name, f"{x_var_name} (surr) ")
+                .str.replace_all(y_var_name, f"{y_var_name} (surr) ")
+            )
+            .when(surr == x_var_name).then(
+                rel.str.replace_all(x_var_name, f"{x_var_name} (surr) ")
+            )
+            .when(surr == y_var_name).then(
+                rel.str.replace_all(y_var_name, f"{y_var_name} (surr) ")
+            )
+            .otherwise(rel)
+            .str.replace_all("  ", " ")
+            .str.strip_chars()
+        )
+
+        table = table.with_columns(rel_s.alias(target_relation_col))
+
     return table
 
 
