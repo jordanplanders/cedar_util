@@ -4,8 +4,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.markers import MarkerStyle
-from matplotlib.patches import Polygon
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Polygon, Rectangle
 import logging
 import pyarrow as pa
 import polars as pl
@@ -86,11 +85,6 @@ class BasePlot:
         self.ylabel = None
         self.xlabel = None
         self.title = None
-        # self.top_val_color = 'black'
-        # self.bottom_val_color = 'gray'
-        # self.highlight_points_size = 40
-        # self.highlight_points_linewidth = 1.5
-        # self.highlight_points_alpha = 1
         self.scatter_points_size = 20
         self.scatter_points_alpha = 0.5
 
@@ -139,19 +133,6 @@ class BasePlot:
 
     def pull_df(self, outputgrp, output_type, output_scope, columns=None, relation_cats=None):
 
-        # if outputgrp.delta_rho_stats is None:
-        #     outputgrp.calc_delta_rho(stats_out=True)
-        # outputgrp.delta_rho_stats.get_table()
-        # self.palette = check_palette_syntax(self.palette, outputgrp.delta_rho_stats.full)
-        #
-        # if stats_only is False and outputgrp.delta_rho_full is None:
-        #     outputgrp.calc_delta_rho(stats_out=False, full_out=True)
-        #     self.palette = check_palette_syntax(self.palette, outputgrp.delta_rho_full.full)
-        #
-        # elif stats_only is False:
-        #     outputgrp.delta_rho_full.get_table()
-
-        print(output_type)
         if output_type is 'delta_rho_stats':# and outputgrp.delta_rho_stats is None:
             outputgrp.delta_rho_stats.get_table()
             output_obj = outputgrp.delta_rho_stats
@@ -161,8 +142,6 @@ class BasePlot:
         elif output_type is 'libsize_aggregated':# and outputgrp.libsize_aggregated is None:
             outputgrp.libsize_aggregated.get_table()
             output_obj = outputgrp.libsize_aggregated
-
-        # output_obj = getattr(outputgrp, output_type, None).get_table()
 
         if output_obj is None:
             print(f"Output object for type '{output_type}' is None, cannot pull table.")
@@ -189,7 +168,6 @@ class BasePlot:
                 relation_col='relation'
             )
         self.palette = check_palette_syntax(self.palette, output_obj._full)
-        # print(self.palette)
 
         if output_scope == 'real':
             output = output_obj.real
@@ -203,11 +181,9 @@ class BasePlot:
         if output is None:
             print(f"Output for scope '{output_scope}' is None, cannot pull DataFrame.")
             return None
-        # print(f"Output for scope '{output_scope}'  before pulling DataFrame.")
-        # print(len(df), df.columns)
+
         mapped_relation_cats = []
         if relation_cats is not None:
-            # relationships = getattr(outputgrp, 'relationships', None)
 
             for relationship_id in relation_cats:
                 relationships = None
@@ -217,19 +193,8 @@ class BasePlot:
                     relationships = [outputgrp.relationships.r2, outputgrp.relationships.surr_r2x, outputgrp.relationships.surr_r2y]
                 else:
                     relationships = [relationship_id]
-                # relationship = outputgrp._resolve_relationship_name(relationship_id=relation_cat)
-                # if relation_cat == 'r1':
-                #     if relationships is None:
-                #         raise ValueError("Cannot resolve relation category 'r1' without outputgrp.relationships.")
-                #     mapped_relation_cats.append(relationships.r1)
-                # elif relation_cat == 'r2':
-                #     if relationships is None:
-                #         raise ValueError("Cannot resolve relation category 'r2' without outputgrp.relationships.")
-                mapped_relation_cats +=relationships
-            #     else:
-            #         raise ValueError(f"Unsupported relation category '{relation_cat}'. Use 'r1' or 'r2'.")
-            # print(mapped_relation_cats)
 
+                mapped_relation_cats +=relationships
 
             if isinstance(output, pa.Table):
                 mask = pc.is_in(output["relation"], value_set=pa.array(mapped_relation_cats))
@@ -239,11 +204,7 @@ class BasePlot:
                 output = output.filter(pl.col("relation").is_in(mapped_relation_cats))
 
         df = self._pull_df(output, columns=columns)
-
-        print(f"Filtered DataFrame for relation categories {mapped_relation_cats}, resulting in {len(df)} rows.")
-
         outputgrp.clear_tables()
-        print(f"Pulled DataFrame for output_type '{output_type}' and output_scope '{output_scope}' with columns {df.columns} and relation categories {relation_cats}.")
 
         return df
 
@@ -288,30 +249,26 @@ class BasePlot:
                 if element_type == 'scatter':
                     for ik in range(len(handles)):
                         label=labels[-(ik+1)]
-                        # print('label', label)
                         handle=handles[-(ik+1)]
-                        # print(type(handle))
-                # for handle, label in zip(handles, labels):
 
                         if isinstance(handle, (mpl.lines.Line2D) ) is False:
                             if label not in self.scatter_labels:
                                 self.scatter_handles.append(handle)
                                 self.scatter_labels.append(label)
-                                # print('added scatter handle/label', handle, label)
+
                 elif element_type == 'line':
                     for handle, label in zip(handles, labels):
                         if label not in self.line_labels:
                             self.line_handles.append(handle)
                             self.line_labels.append(label)
-                            #             self.line_handles.append(handle)
-                            #             self.line_labels.append(label)
+
+
 
         if legend is False:
             self.ax.legend().remove()
 
     def tidy_plot(self, legend=False, edge=True, bottom=True):
         # Axis labels
-        # self.ax.set_xlabel(self.x_var)
         self.ax.set_ylabel(self.y_var.replace('rho_', 'ρ'))
 
         available_ylabel = self.ax.get_ylabel()
@@ -438,12 +395,6 @@ class LibSizeRhoPlot(BasePlot):
 
         outputgrp.libsize_aggregated.get_table()
 
-        # if stats_only is False and outputgrp.delta_rho_full is None:
-        #     outputgrp.calc_delta_rho(stats_out=False, full_out=True)
-        #     self.palette = check_palette_syntax(self.palette, outputgrp.delta_rho_full.full)
-        # elif stats_only is False:
-        #     outputgrp.delta_rho_full.get_table()
-
         if isinstance(outputgrp.libsize_aggregated._full, pa.Table):
             schema_names = outputgrp.libsize_aggregated._full.schema.names
         else:
@@ -520,25 +471,6 @@ class LibSizeRhoPlot(BasePlot):
                 self.annotations.append(annotation)
 
         self.add_line(surr_lag_df, units=self.units)
-
-        # self.calc_top_vals(outputgrp)
-
-        # try:
-        #     if scatter is True:
-        #         if stats_only is False and outputgrp.delta_rho_full is not None and len(outputgrp.delta_rho_full.surrogate) > 0:
-        #             self.add_scatter(self.pull_df(outputgrp.delta_rho_full.surrogate))
-        #         else:
-        #             self.add_scatter(self.pull_df(outputgrp.delta_rho_stats.surrogate))
-        #     if boxplot is True:
-        #         if stats_only is False and outputgrp.delta_rho_full is not None and len(outputgrp.delta_rho_full.surrogate) > 0:
-        #             self.add_boxplot(self.pull_df(outputgrp.delta_rho_full.surrogate))
-        #         else:
-        #             self.add_boxplot(self.pull_df(outputgrp.delta_rho_stats.surrogate))
-        #
-        #
-        #             # print('made scatter plot' ,type(self.ax))
-        # except Exception as e:
-        #     print('no surrogate full data for scatter', e)
 
         outputgrp.clear_tables()
 
@@ -675,12 +607,6 @@ class LagPlot(BasePlot):
             max_group_width = spacing_factor * min_spacing
             group_width = min(width, max_group_width)
 
-        # if len(x_values) == 1:
-        #     group_width = width
-        # else:
-        #     min_spacing = np.min(np.diff(x_values))
-        #     group_width = min(width, spacing_factor * min_spacing)
-
         if hue is None:
             hue_levels = [None]
         else:
@@ -716,16 +642,6 @@ class LagPlot(BasePlot):
             actual_group_width = n_boxes * box_width + (n_boxes - 1) * gap  # == group_width, but explicit
             left0 = x - actual_group_width / 2
 
-
-            # n_boxes = len(grouped)
-            # if n_boxes == 0:
-            #     continue
-            #
-            # gap = group_width * gap_fraction if n_boxes > 1 else 0
-            # total_gap = gap * max(n_boxes - 1, 0)
-            # box_width = (group_width - total_gap) / n_boxes
-            # left0 = x - group_width / 2
-
             for j, (group, gdf) in enumerate(grouped):
                 y = gdf[self.y_var].to_numpy(dtype=float)
                 y = y[np.isfinite(y)]
@@ -754,41 +670,8 @@ class LagPlot(BasePlot):
                     zorder=3,
                 )
 
-                # rect = Rectangle(
-                #     (box_center - box_width / 2, box_low),
-                #     box_width,
-                #     box_high - box_low,
-                #     facecolor=facecolor,
-                #     edgecolor='none',  # no stroke on the fill rect
-                #     zorder=3,
-                # )
                 rect.set_clip_path(rect)
                 self.ax.add_patch(rect)
-
-                # if outline:
-                #     outline_rect = Rectangle(
-                #         (box_center - box_width / 2, box_low),
-                #         box_width,
-                #         box_high - box_low,
-                #         facecolor='none',
-                #         edgecolor=edgecolor,
-                #         linewidth=box_linewidth,
-                #         zorder=4,  # draw on top
-                #     )
-                #     rect.set_clip_path(rect)
-                #     self.ax.add_patch(outline_rect)
-
-                # rect = Rectangle(
-                #     (box_center - box_width / 2, box_low),
-                #     box_width,
-                #     box_high - box_low,
-                #     facecolor=facecolor,
-                #     edgecolor=edgecolor,
-                #     linewidth=box_linewidth,
-                #     zorder=3,
-                # )
-                # rect.set_clip_path(rect)
-                # self.ax.add_patch(rect)
 
                 if whisker_low < box_low:
                     self.ax.vlines(
@@ -936,10 +819,7 @@ class LagPlot(BasePlot):
             columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num'],
             relation_cats=relation_scope,
         )
-        print(f"real_lag_df size: {len(real_lag_df)}")
         self.add_line(real_lag_df, units=None)
-
-        # self.calc_top_vals(outputgrp)
 
 
         try:
@@ -1119,91 +999,9 @@ class ResultsGrid(BasePlot):
             tmp['surr_rx_outperforming_frac'] = None
         return tmp
 
-    # @staticmethod
-    # def _to_lag_index_df(pivot_df, lag_to_index):
-    #     out = pivot_df.copy()
-    #     out = out.applymap(lambda val: lag_to_index.get(int(val), np.nan) if pd.notna(val) else np.nan)
-    #     return out
-
-    # def _is_optimal_lag_mode(self, grid_df):
-    #     if self.lag_mode not in ['unrestricted', 'compare']:
-    #         return False
-    #     return isinstance(grid_df, pd.DataFrame) and ('selected_lag' in grid_df.columns)
-
     def _build_axis_lookup(self, pivot_table):
         self._x_lookup = {x_val: ix for ix, x_val in enumerate(pivot_table.columns.tolist())}
         self._y_lookup = {y_val: iy for iy, y_val in enumerate(pivot_table.index.tolist())}
-
-    # def _lag_to_color(self, lag_val):
-    #     if self.discrete_lag_info is None:
-    #         return 'k'
-    #     lag_to_index = self.discrete_lag_info['lag_to_index']
-    #     idx = lag_to_index.get(int(lag_val), None)
-    #     if idx is None:
-    #         return 'k'
-    #     return self.discrete_lag_info['cmap'](idx)
-
-    # def set_discrete_lag_domain(self, lag_values):
-    #     if lag_values is None:
-    #         return
-    #     lag_vals = [int(v) for v in lag_values]
-    #     if len(lag_vals) == 0:
-    #         return
-    #     self.discrete_lag_info = build_discrete_lag_palette(lag_vals, palette=self.palette)
-
-    # def add_corner_overlay(self, dyad_df):
-    #     if self.ax is None or self.discrete_lag_info is None:
-    #         return
-    #     print('adding corner overlay', self.discrete_lag_info['lag_to_index'])
-    #     for _, row in dyad_df.iterrows():
-    #         lag_val = row.get(self.corner_column, np.nan)
-    #         if pd.isna(lag_val):
-    #             continue
-    #         x_key = row[self.x_var]
-    #         y_key = row[self.y_var]
-    #         if x_key not in self._x_lookup or y_key not in self._y_lookup:
-    #             continue
-    #         x0 = self._x_lookup[x_key]
-    #         y0 = self._y_lookup[y_key]
-    #         s = self.corner_size
-    #         pts = [(x0 + 1, y0), (x0 + 1 - s, y0), (x0 + 1, y0 + s)]
-    #         tri = Polygon(pts, closed=True, facecolor=self._lag_to_color(lag_val), edgecolor='none', zorder=8)
-    #         self.ax.add_patch(tri)
-
-    # def add_peak_circles(self, dyad_df, linewidth=0, edgecolors='none'):
-    #     if self.ax is None or self.discrete_lag_info is None:
-    #         return
-    #     min_s, max_s = self.circle_sizes
-    #     for _, row in dyad_df.iterrows():
-    #         sharp = row.get(self.sharpness_column, np.nan)
-    #         lag_val = row.get('selected_lag', np.nan)
-    #         if pd.isna(sharp) or pd.isna(lag_val):
-    #             continue
-    #         x_key = row[self.x_var]
-    #         y_key = row[self.y_var]
-    #         if x_key not in self._x_lookup or y_key not in self._y_lookup:
-    #             continue
-    #         x = self._x_lookup[x_key] + 0.5
-    #         y = self._y_lookup[y_key] + 0.5
-    #         sharp = float(np.clip(sharp, 0.0, 1.0))
-    #         size = min_s + (max_s - min_s) * sharp
-    #         self.ax.scatter([x], [y], s=size, c=[self._lag_to_color(lag_val)], edgecolors=edgecolors, linewidths=linewidth, zorder=9)
-
-    # def add_tie_markers(self, dyad_df):
-    #     if self.ax is None:
-    #         return
-    #     tie_df = dyad_df[dyad_df.get('has_tie', False) == True]
-    #     if len(tie_df) == 0:
-    #         return
-    #     xs, ys = [], []
-    #     for _, row in tie_df.iterrows():
-    #         x_key = row[self.x_var]
-    #         y_key = row[self.y_var]
-    #         if x_key in self._x_lookup and y_key in self._y_lookup:
-    #             xs.append(self._x_lookup[x_key] + 0.82)
-    #             ys.append(self._y_lookup[y_key] + 0.18)
-    #     if len(xs) > 0:
-    #         self.ax.scatter(xs, ys, s=18, marker='x', c='black', linewidths=0.8, zorder=10)
 
     def plot_heatmap(self, grid_df, ax=None):
         if self.ax is None:
@@ -1389,7 +1187,6 @@ class ResultsGrid(BasePlot):
         self.ax.set_xlabel(self.xlabel if self.xlabel is not None else self.ax.get_xlabel())# else supxlabel, fontsize='medium')
         self.ax.set_ylabel(self.ylabel if self.ylabel is not None else self.ax.get_ylabel())# else supylabel, fontsize='medium')
         # print('set title/xlabel/ylabel', self.title, self.xlabel, self.ylabel)
-    # def make_special_legend(self):
 
 
 class SimplexGrid(BasePlot):
@@ -1499,7 +1296,6 @@ class SimplexGrid(BasePlot):
         self.ax.set_xlabel(self.xlabel if self.xlabel is not None else self.ax.get_xlabel())# else supxlabel, fontsize='medium')
         self.ax.set_ylabel(self.ylabel if self.ylabel is not None else self.ax.get_ylabel())# else supylabel, fontsize='medium')
         # print('set title/xlabel/ylabel', self.title, self.xlabel, self.ylabel)
-    # def make_special_legend(self):
 
     def make_colorbar(self, cbar_ax=None, label=None):
         # self.cbar_ax = self.get_ax(0, self.ncols - 1)
