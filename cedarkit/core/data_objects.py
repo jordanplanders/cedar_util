@@ -70,20 +70,6 @@ def get_static(obj):
         else:
             return obj
 
-# moved to data_access
-#def template_replace(template, d, return_replaced=True):
-#     replaced = []
-#     old_template = template
-#     for key, value in d.items():
-#         template = cedarkit.utils.paths.replace(f'{{{key}}}', str(value))
-#         if template != old_template:
-#             replaced.append(key)
-#             old_template = template
-#     if return_replaced is False:
-#         return template
-#
-#     return template, replaced
-#
 
 def extract_from_pattern(filename: str, pattern_str: str):
     """
@@ -103,14 +89,6 @@ def extract_from_pattern(filename: str, pattern_str: str):
     # Convert all extracted values to integers
     return {k: int(v) for k, v in match.groupdict().items()}
 
-# def separate_real_surr(table):
-#     if 'surr_var' in table.schema.names:
-#         mask = pc.equal(table['surr_var'], 'neither')
-#         real_table = table.filter(mask)
-#         surr_table = table.filter(pc.invert(mask))
-#         return real_table, surr_table
-#     else:
-#         return table
 
 def check_return(table):
     if table is not None and table.num_rows > 0:
@@ -1222,7 +1200,6 @@ class OutputCollection:
         self.dyad_home = None
         # print('temporary directory for OutputCollection:', self.tmp_path)
 
-            # iterable_d = {k: correct_iterable(v) for k, v in grp_specs.__dict__.items()}
 
     # def __init__(self, in_table):
         if isinstance(in_table, list) is False:
@@ -1401,213 +1378,6 @@ class OutputCollection:
             return self.relationships.r2
         raise ValueError(f"Unsupported relationship_id '{relationship_id}'. Use 'r1' or 'r2'.")
 
-    # @staticmethod
-    # def _resolve_lag_constraint(lag_constraint=None, x_cutoff=0):
-    #     if lag_constraint is None:
-    #         return lambda lag: True
-    #     if callable(lag_constraint):
-    #         return lag_constraint
-    #     if isinstance(lag_constraint, (int, float)):
-    #         return lambda lag: lag > lag_constraint
-    #     if isinstance(lag_constraint, str):
-    #         if lag_constraint == 'pos':
-    #             return lambda lag: lag > x_cutoff
-    #         if lag_constraint == 'nonneg':
-    #             return lambda lag: lag >= x_cutoff
-    #         if lag_constraint == 'neg':
-    #             return lambda lag: lag < x_cutoff
-    #         if lag_constraint == 'nonpos':
-    #             return lambda lag: lag <= x_cutoff
-    #     raise ValueError("lag_constraint must be None, callable, numeric threshold, or one of: pos/nonneg/neg/nonpos")
-
-    # @staticmethod
-    # def _normalize_lag_range(lag_range=None):
-    #     if lag_range is None:
-    #         return None
-    #     if not isinstance(lag_range, (tuple, list)) or len(lag_range) != 2:
-    #         raise ValueError("lag_range must be None or a (min_lag, max_lag) tuple/list")
-    #     lo, hi = lag_range
-    #     if lo is None and hi is None:
-    #         return None
-    #     if lo is not None:
-    #         lo = int(lo)
-    #     if hi is not None:
-    #         hi = int(hi)
-    #     if (lo is not None) and (hi is not None) and (lo > hi):
-    #         raise ValueError("lag_range lower bound cannot be greater than upper bound")
-    #     return lo, hi
-
-    # @staticmethod
-    # def _apply_lag_range(df, lag_range):
-    #     if lag_range is None or len(df) == 0:
-    #         return df
-    #     lo, hi = lag_range
-    #     out = df
-    #     if lo is not None:
-    #         out = out[out['lag'] >= lo]
-    #     if hi is not None:
-    #         out = out[out['lag'] <= hi]
-    #     return out
-
-    # @staticmethod
-    # def _select_optimal_from_group(grp_df, metric_col):
-    #     if len(grp_df) == 0:
-    #         return {
-    #             'selected_lag': np.nan,
-    #             'selected_rho': np.nan,
-    #             'tied_lags': [],
-    #             'has_tie': False,
-    #         }
-    #     top_val = grp_df[metric_col].max()
-    #     tied = grp_df[np.isclose(grp_df[metric_col], top_val)]['lag'].astype(int).unique().tolist()
-    #     tied = sorted(tied)
-    #     selected = sorted(tied, key=lambda v: (abs(v), v))[0]
-    #     return {
-    #         'selected_lag': int(selected),
-    #         'selected_rho': float(top_val),
-    #         'tied_lags': tied,
-    #         'has_tie': len(tied) > 1,
-    #     }
-
-    # @staticmethod
-    # def _compute_local_peak_sharpness(grp_df, selected_lag, metric_col='rho_metric', halfwidth=3):
-    #     if pd.isna(selected_lag):
-    #         return np.nan
-    #     center = grp_df[grp_df['lag'] == selected_lag]
-    #     if len(center) == 0:
-    #         return np.nan
-    #     rho_l = float(center[metric_col].iloc[0])
-    #     if np.isclose(rho_l, 0.0):
-    #         return np.nan
-    #     wmask = (grp_df['lag'] >= selected_lag - halfwidth) & (grp_df['lag'] <= selected_lag + halfwidth) & (grp_df['lag'] != selected_lag)
-    #     neighbors = grp_df.loc[wmask, metric_col].dropna()
-    #     if len(neighbors) == 0:
-    #         return np.nan
-    #     sharpness = (rho_l - float(neighbors.mean())) / rho_l
-    #     return float(np.clip(sharpness, 0.0, 1.0))
-
-    # def extract_optimal_lag_table(
-    #     self,
-    #     relationship_id='r1',
-    #     metric='maxlibsize_rho',
-    #     lag_constraint=None,
-    #     lag_range=None,
-    #     x_cutoff=0,
-    #     include_constrained=True,
-    #     constrained_suffix='pos',
-    #     peak_window_halfwidth=3,
-    # ):
-    #     """
-    #     Return per-(E,tau) optimal lag rows selected by top metric value across lags.
-    #
-    #     Uses delta_rho_stats real rows (surr_var == 'neither'), aggregates to
-    #     per-(E,tau,lag), captures ties, and applies deterministic tie-breaking:
-    #     smallest absolute lag then smallest lag.
-    #     """
-    #     if self.delta_rho_stats is None:
-    #         self.calc_delta_rho(stats_out=True)
-    #     self.delta_rho_stats.get_table()
-    #
-    #     relationship = self._resolve_relationship_name(relationship_id=relationship_id)
-    #     real_df = self.delta_rho_stats.real.to_pandas()
-    #     if len(real_df) == 0:
-    #         return pd.DataFrame(columns=['E', 'tau', 'selected_lag', 'selected_rho', 'tied_lags'])
-    #     if metric not in real_df.columns:
-    #         raise KeyError(f"Metric column '{metric}' not found in delta_rho_stats.real")
-    #
-    #     real_df = real_df[(real_df['relation'] == relationship) & (real_df['surr_var'] == 'neither')].copy()
-    #     if len(real_df) == 0:
-    #         return pd.DataFrame(columns=['E', 'tau', 'selected_lag', 'selected_rho', 'tied_lags'])
-    #
-    #     lag_metric_df = (
-    #         real_df.groupby(['E', 'tau', 'lag'], as_index=False)[metric]
-    #         .mean()
-    #         .rename(columns={metric: 'rho_metric'})
-    #     )
-    #     lag_metric_df['lag'] = lag_metric_df['lag'].astype(int)
-    #     lag_range = self._normalize_lag_range(lag_range)
-    #     lag_metric_df = self._apply_lag_range(lag_metric_df, lag_range).copy()
-    #     if len(lag_metric_df) == 0:
-    #         return pd.DataFrame(columns=['E', 'tau', 'selected_lag', 'selected_rho', 'tied_lags'])
-    #
-    #     out_rows = []
-    #     for (E_val, tau_val), grp in lag_metric_df.groupby(['E', 'tau']):
-    #         optimal = self._select_optimal_from_group(grp, metric_col='rho_metric')
-    #         row = {
-    #             'E': E_val,
-    #             'tau': tau_val,
-    #             'selected_lag': optimal['selected_lag'],
-    #             'selected_rho': optimal['selected_rho'],
-    #             'tied_lags': optimal['tied_lags'],
-    #             'has_tie': optimal['has_tie'],
-    #         }
-    #         row['peak_sharpness'] = self._compute_local_peak_sharpness(
-    #             grp,
-    #             selected_lag=optimal['selected_lag'],
-    #             metric_col='rho_metric',
-    #             halfwidth=peak_window_halfwidth,
-    #         )
-    #
-    #         if include_constrained:
-    #             lag_filter = self._resolve_lag_constraint(lag_constraint=lag_constraint or 'pos', x_cutoff=x_cutoff)
-    #             constrained_grp = grp[grp['lag'].apply(lag_filter)].copy()
-    #             constrained_opt = self._select_optimal_from_group(constrained_grp, metric_col='rho_metric')
-    #             row[f'selected_lag_{constrained_suffix}'] = constrained_opt['selected_lag']
-    #             row[f'selected_rho_{constrained_suffix}'] = constrained_opt['selected_rho']
-    #             row[f'tied_lags_{constrained_suffix}'] = constrained_opt['tied_lags']
-    #             row[f'has_tie_{constrained_suffix}'] = constrained_opt['has_tie']
-    #
-    #         out_rows.append(row)
-    #
-    #     out_df = pd.DataFrame(out_rows)
-    #     if len(out_df) == 0:
-    #         return out_df
-    #
-    #     # Attach significance-style fractions using legacy ResultGrid semantics:
-    #     # surrogate members are compared by their own best lag (per E,tau,surr_var,surr_num),
-    #     # not restricted to the real selected lag.
-    #     surr_df = self.delta_rho_stats.surrogate.to_pandas()
-    #     if len(surr_df) > 0:
-    #         surr_df = surr_df[surr_df['relation'] == relationship].copy()
-    #         surr_agg = (
-    #             surr_df.groupby(['E', 'tau', 'lag', 'surr_var', 'surr_num'], as_index=False)[metric]
-    #             .mean()
-    #             .rename(columns={metric: 'rho_metric'})
-    #         )
-    #         surr_agg['lag'] = surr_agg['lag'].astype(int)
-    #         surr_agg = self._apply_lag_range(surr_agg, lag_range).copy()
-    #         surr_best = (
-    #             surr_agg.groupby(['E', 'tau', 'surr_var', 'surr_num'], as_index=False)['rho_metric']
-    #             .max()
-    #         )
-    #         var_x = self.relationships.var_x
-    #         var_y = self.relationships.var_y
-    #         surr_stats = []
-    #         for _, row in out_df.iterrows():
-    #             E_val, tau_val = row['E'], row['tau']
-    #             selected_rho = row['selected_rho']
-    #             sub = surr_best[(surr_best['E'] == E_val) & (surr_best['tau'] == tau_val)]
-    #             rx = sub[sub['surr_var'] == var_x]
-    #             ry = sub[sub['surr_var'] == var_y]
-    #             rx_n = len(rx['surr_num'].unique())
-    #             ry_n = len(ry['surr_num'].unique())
-    #             rx_frac = float((rx['rho_metric'] > selected_rho).sum() / rx_n) if rx_n > 0 else None
-    #             ry_frac = float((ry['rho_metric'] > selected_rho).sum() / ry_n) if ry_n > 0 else None
-    #             surr_stats.append((rx_frac, ry_frac))
-    #         out_df['surr_rx_outperforming_frac'] = [v[0] for v in surr_stats]
-    #         out_df['surr_ry_outperforming_frac'] = [v[1] for v in surr_stats]
-    #     else:
-    #         out_df['surr_rx_outperforming_frac'] = None
-    #         out_df['surr_ry_outperforming_frac'] = None
-    #
-    #     out_df.sort_values(['tau', 'E'], inplace=True)
-    #     out_df.reset_index(drop=True, inplace=True)
-    #     self.delta_rho_stats.clear_table()
-    #     return out_df
-
-    # # Backward-friendly alias for callers that expect a "calc_*" name.
-    # def calc_optimal_lag_table(self, **kwargs):
-    #     return self.extract_optimal_lag_table(**kwargs)
 
     def _draw_metric_df(self, source, table_attr='real'):
 
@@ -1782,9 +1552,6 @@ class OutputCollection:
             (gb_real_df['relation'] == relationship) & (gb_real_df['surr_var'] == surr_var)].reset_index(drop=True)
 
         all_candidates = self.find_candidate_peaks(real_r_df, y_col=y_col, smoothing_window=smoothing_window)
-        # print('all candidate peaks:')
-        # print(all_candidates.head())
-        # top_lags_metrics = self.find_viable_peaks(real_r_df, relationship, y_col='maxlibsize_rho')
 
         self.lag_choices = all_candidates
         self.real_r_df_tmp = real_r_df
@@ -1851,9 +1618,6 @@ class OutputCollection:
         if self.lag_choices is None:
             print('lag choices not found, calculating candidate peaks...')
             self.calc_lags_peaks(relationship_id=relationship_id, y_col=y_col, smoothing_window=smoothing_window)
-        # except Exception as e:
-        #     print(f'Error calculating candidate peaks: {e}')
-        #     self.calc_lags_peaks(relationship_id=relationship_id, y_col=y_col, smoothing_window=smoothing_window)
 
         viable_lags  = self.find_viable_peaks(lag_filter=None, y_col=y_col, smoothing_window=smoothing_window)
         tested_viable_lags = self.test_lags(lag_df = viable_lags, relationship=relationship)
@@ -1871,7 +1635,6 @@ class OutputCollection:
         sorted_unrestricted_lags = pd.concat([unrestricted_lags_filtered[unrestricted_lags_filtered['lag'] >= 0].copy(),
                                        unrestricted_lags_filtered[unrestricted_lags_filtered['lag'] < 0].copy()])
 
-        # print(sorted_unrestricted_lags)
         if len(sorted_unrestricted_lags[sorted_unrestricted_lags['peak_end']>=0])>0:
             target_lag = sorted_unrestricted_lags[sorted_unrestricted_lags['peak_end']>=0].iloc[0]['lag']
         else:
@@ -1892,124 +1655,8 @@ class OutputCollection:
 
         if self.target_lag is None:
             target_lag = self.set_target_lag(relationship_id=relationship_id, y_col=y_col, smoothing_window=smoothing_window, lag=lag)
-        #
-        # # gb_real = self.delta_rho_stats.real.group_by(["relation", 'lag', 'surr_var', 'surr_num']).aggregate(
-        # #     [("maxlibsize_rho", "mean"), ("delta_rho", "mean")])
-        #
-        # # gb_real = (
-        # #     self.delta_rho_stats.real
-        # #     .groupby(["relation", "lag", "surr_var", "surr_num"])
-        # #     .agg(
-        # #         maxlibsize_rho_mean=("maxlibsize_rho", "mean"),
-        # #         maxlibsize_rho_std=("maxlibsize_rho", "std"),
-        # #         maxlibsize_rho_p50=("maxlibsize_rho", "median"),
-        # #         maxlibsize_rho_p25=("maxlibsize_rho", lambda s: s.quantile(0.25)),
-        # #         maxlibsize_rho_p75=("maxlibsize_rho", lambda s: s.quantile(0.75)),
-        # #
-        # #         delta_rho_mean=("delta_rho", "mean"),
-        # #         delta_rho_std=("delta_rho", "std"),
-        # #         delta_rho_p50=("delta_rho", "median"),
-        # #         delta_rho_p25=("delta_rho", lambda s: s.quantile(0.25)),
-        # #         delta_rho_p75=("delta_rho", lambda s: s.quantile(0.75)),
-        # #     )
-        # #     .reset_index()
-        # # )
-        # #
-        # # gb_real_df = gb_real.to_pandas()
-        # lag_filter = self._resolve_metrics_lag_filter(lag=lag)
-        #
-        # try:
-        #     if self.lag_choices is None:
-        #         self.calc_lags_peaks(relationship_id=relationship_id, smoothing_window=smoothing_window)
-        # except Exception as e:
-        #     self.calc_lags_peaks(relationship_id=relationship_id, smoothing_window=smoothing_window)
-        #
-        # # if self.real_r_df_tmp is None:
-        # #     self.delta_rho_full.get_table()
-        # #     gb_real_df =self._draw_metric_df(self.delta_rho_full.real, 'real')
-        # #     self.delta_rho_full.clear_table()
-        # #     real_r_df = gb_real_df[
-        # #         (gb_real_df['relation'] == relationship) & (gb_real_df['surr_var'] == 'neither')].reset_index(drop=True)
-        # # top_lags_metrics = self.find_viable_peaks(real_r_df, relationship, y_col='maxlibsize_rho')
-        #
-        # viable_lags = self.find_viable_peaks(lag_filter=lag_filter, y_col='maxlibsize_rho', smoothing_window=smoothing_window)
-        #
-        #
-        # if len(viable_lags[viable_lags['category'] == 'unrestricted']) == 0:
-        #     log_line(self.log, f'No viable lags found for relationship {relationship_id} with lag filter {lag!r}', log_type='warning')
-        #     # print(f'No viable lags found for relationship {relationship_id} with lag filter {lag!r}')
-        #     raise ValueError(f"No rows left after applying lag filter: {lag!r} E={self.grp_config.E}, tau={self.grp_config.tau}")
-        #
-        # tested_viable_lags = self.test_lags(lag_df = viable_lags, relationship=relationship)
-        # unrestricted_lags = tested_viable_lags[tested_viable_lags['category'] == 'unrestricted'].copy()
-        # unrestricted_lags = unrestricted_lags.drop(columns=['surr_var']).drop_duplicates(subset=['lag'])
-        # unrestricted_lags['abs_lag'] = unrestricted_lags['lag'].apply(lambda x: abs(x) if pd.notna(x) else np.inf)
-        # unrestricted_lags = unrestricted_lags.sort_values(by=[ 'abs_lag', 'lag', 'maxlibsize_rho_mean'],
-        #                                                   ascending=[True, False, False])
-        # unrestricted_lags = pd.concat([unrestricted_lags[unrestricted_lags['lag'] >= 0].copy(),
-        #                                unrestricted_lags[unrestricted_lags['lag'] < 0].copy()])
-        #
-        # # print(unrestricted_lags[['lag', 'maxlibsize_rho_mean', 'abs_lag', 'peak_end']])
-        #
-        # if len(unrestricted_lags[unrestricted_lags['peak_end']>=0])>0:
-        #     unrestricted_lag = unrestricted_lags[unrestricted_lags['peak_end']>=0].iloc[0]['lag']
-        # else:
-        #     unrestricted_lag = unrestricted_lags.iloc[0]['lag']
-        #
-        # target_lag_choices = tested_viable_lags[tested_viable_lags['category'] == 'set']#.sort_values(by='maxlibsize_rho_mean', ascending=False).iloc[0]['lag']
-        # if len(target_lag_choices['lag'].unique()) >1:
-        #     target_lag = target_lag_choices.sort_values(by='lag', ascending=False).iloc[0]['lag']
-        # elif len(target_lag_choices['lag'].unique()) == 1:
-        #     target_lag = target_lag_choices.iloc[0]['lag']
-        # else:
-        #     log_line(self.log, f'No viable lags found for relationship {relationship_id} with lag filter {lag!r}', log_type='warning')
-        #     # print(f'No viable lags found for relationship {relationship_id} with lag filter {lag!r}')
-        #     print(f"No rows left after applying lag filter: {lag!r}")
-        #     target_lag = unrestricted_lag
-        #
-        # # print(f"Selected lag for relationship {relationship_id} with lag filter {lag!r}: {target_lag}, unrestricted top lag was {unrestricted_lag}")
-        # target_lag_info = tested_viable_lags[(tested_viable_lags['category'] == 'unrestricted') & (tested_viable_lags['lag'] == unrestricted_lag)].copy()
-        # # viable_lags['surr_var']=None
-        # # viable_lags['surr_outperformer_count']=None
-        # # viable_lags['surr_outperformer_frac']=None
-        # # viable_lags['surr_count']=None
-        #
-        # # if self.surr_r_df_tmp is None:
-        # #     gb_surr_df = self._draw_metric_df('delta_rho_stats', 'surrogate')
-        # #
-        # #     # gb_surr = self.delta_rho_stats.surrogate.group_by(["relation", 'lag', 'surr_var', 'surr_num']).aggregate(
-        # #     #     [("maxlibsize_rho", "mean")])
-        # #     gb_surr_df = gb_surr.to_pandas()
-        # #
-        # # #
-        # # # real_r_df = real_r_df[real_r_df['lag'].apply(lag_filter)].reset_index(drop=True)
-        # # # if len(real_r_df) == 0:
-        # # #     raise ValueError(f"No rows left after applying lag filter: {lag!r}")
-        # # #
-        # # # real_r_ind = np.argmax(real_r_df['maxlibsize_rho_mean'].values)
-        # # # real_r_d = real_r_df.iloc[real_r_ind].to_dict()
-        # #
-        # # lag_performance_surr_tests = []
-        # # for surr_var in [self.relationships.var_x, self.relationships.var_y]:
-        # #     lag_df__surr_test = viable_lags.copy()
-        # #     lag_df__surr_test['surr_var'] = surr_var
-        # #     surr_rx_df = gb_surr_df[(gb_surr_df['relation'] == relationship) & (gb_surr_df['surr_var'] == surr_var)]
-        # #     surr_rx_count = len(surr_rx_df.surr_num.unique())
-        # #     for ik in range(len(lag_df__surr_test)):
-        # #         surr_rx_df_outperformers = surr_rx_df[surr_rx_df['maxlibsize_rho_mean'] > lag_df__surr_test.iloc[ik]['maxlibsize_rho_mean']]
-        # #         surr_rx_df_outperformers_count = len(surr_rx_df_outperformers.surr_num.unique())
-        # #         lag_df__surr_test.at[ik, 'surr_outperformer_count'] = surr_rx_df_outperformers_count
-        # #         lag_df__surr_test.at[ik, 'surr_outperformer_frac'] = surr_rx_df_outperformers_count / surr_rx_count if surr_rx_count > 0 else None
-        # #         lag_df__surr_test.at[ik, 'surr_count'] = surr_rx_count
-        # #     lag_performance_surr_tests.append(lag_df__surr_test)
-        # #
-        # # lag_performance_surr_tested_df = pd.concat(lag_performance_surr_tests, ignore_index=True)
-        # # # surr_ry_df = gb_surr_df[
-        # # #     (gb_surr_df['relation'] == relationship) & (gb_surr_df['surr_var'] == self.relationships.var_y)]
-        # # # surr_ry_count = len(surr_ry_df.surr_num.unique())
-        # # # surr_ry_df_outperformers = surr_ry_df[surr_ry_df['maxlibsize_rho_mean'] > real_r_d['maxlibsize_rho_mean']]
-        # # # surr_ry_df_outperformers_count = len(surr_ry_df_outperformers.surr_num.unique())
-        #
+
+
         target_lag_info = self.viable_lags[self.viable_lags['lag'] == self.target_lag].copy()
         surr_rx_count = target_lag_info[target_lag_info['surr_var'] == self.relationships.var_x]['surr_count'].iloc[0]
         surr_rx_df_outperformers_count = target_lag_info[target_lag_info['surr_var'] == self.relationships.var_x]['surr_outperformer_count'].iloc[0]
@@ -2217,218 +1864,6 @@ class OutputCollection:
             self.delta_rho_full.tmp_dir = self.tmp_path
 
 
-
-#
-# class DataVarConfig:
-#     def __init__(self, config, var_id, proj_dir, suffix_label=None, suffix_ind=None):
-#
-#         self.var_id = var_id
-#         self.suffix_label= suffix_label if suffix_label is not None else ''
-#         self.suffix_ind = suffix_ind if suffix_ind is not None else ''
-#         self.suffix = f'{self.suffix_label}{self.suffix_ind}'
-#
-#         self.raw_data_csv = None
-#         self.raw_data_var = None
-#         self.raw_data_col = None
-#         self.raw_time_var = None
-#         self.var = None  # e.g. 'temp'
-#
-#         self.surr_csvs = None
-#         self.surr_csv_stem = None
-#         self.surr_csv = None
-#         self.surr_time_var = None
-#         self.surr_prefix = None
-#         self.surr_var = None  # e.g. 'temp'
-#         # self.surr_num = None
-#
-#         self.obs_type = None
-#         self.source = None
-#         self.unit = None
-#         self.var_label = None
-#         self.var_name = None
-#         self.year = None
-#         self.color = None
-#
-#         # TODO there is some future redundancy here and sketchy path handling
-#         self.raw_data_dir_path = None
-#         self.surr_data_dir_path = None
-#         self.proj_dir = None
-#         self.populate(config, proj_dir)
-#
-#
-#     def populate(self, config, proj_dir):
-#
-#         self.proj_dir = proj_dir
-#         try:
-#             var_yaml = config.get_dynamic_attr("data_vars.{var}.config", self.var_id)
-#             # load variable-specific settings from config
-#             self.load_from_var_yaml(var_yaml, proj_dir)
-#             var_info = var_yaml.get(self.var_id, None) if var_yaml is not None else None
-#         except:
-#             print(f'reading var yaml for {self.var_id} failed, trying config')
-#             self.load_from_config( config, proj_dir)
-#
-#     def load_from_var_yaml(self, var_yaml, proj_dir):
-#         print('load_from_var_yaml function is a stub - needs to be implemented')
-#         pass
-#
-#     # TODO fix pointers for surrogates
-#     def load_from_config(self, config, proj_dir):
-#
-#         var_id = self.var_id
-#         var_info = config.get_dynamic_attr("{var}", self.var_id)
-#         var_info = var_info.to_dict()
-#
-#         real_ts_d = var_info.pop('real_ts', None)
-#         surr_ts_d = var_info.pop('surrogate_ts', None)
-#
-#
-#         if 'raw_data_var' not in var_info.keys():
-#             if 'data_var' in var_info.keys():
-#                 data_var = var_info.pop('data_var', None)
-#                 var_info['raw_data_var'] = data_var
-#
-#         if 'raw_data_csv' not in var_info.keys():
-#             if 'data_csv' in var_info.keys():
-#                 data_csv = var_info.pop('data_csv', None)
-#                 var_info['raw_data_csv'] = data_csv
-#
-#         if 'raw_time_var' not in var_info.keys():
-#             time_var = var_info.pop('raw_time_var', None)
-#             if 'time_var' in var_info.keys():
-#                 time_var = var_info.pop('time_var', None)
-#             else:
-#                 time_var = 'time'
-#             var_info['raw_time_var'] = time_var
-#
-#         if 'surr_time_var' not in var_info.keys():
-#             var_info['surr_time_var']='date'
-#
-#
-#         if 'surr_var' not in var_info.keys() or var_info['surr_var'] is None:
-#             var_info['surr_var'] = var_info.get('var', None)
-#
-#         try:
-#             surr_csvs = config.get_dynamic_attr("{var}.surr_file_name", self.var_id)
-#         except:
-#             surr_csvs = None
-#
-#         if surr_csvs is not None:
-#             surr_csvs = correct_iterable(surr_csvs)
-#             if len(surr_csvs) == 1:
-#                 var_info['surr_csv_stem'] = surr_csvs[0].replace('.csv', '').replace('.txt', '')
-#             else:
-#                 print(f'Multiple surrogate csvs found for {self.var_id}: {surr_csvs}')
-#
-#         var_info['surr_prefix'] = var_info.get('surr_prefix', var_info.get('surr_var', None))
-#         for key in var_info.keys():
-#             if hasattr(self, key):
-#                 setattr(self, key, var_info[key])
-#
-#         self.raw_data_dir_path = self.set_data_source(config, data_source='data', data_type='raw')
-#         self.get_color(config)
-#         self.set_surr_csv_name()
-#         self.surr_data_dir_path = self.set_data_source(config, data_source='data', data_type='surr')
-#         self.set_raw_data_col()
-#
-#     def set_surr_csv_name(self):
-#         if len(self.suffix) >0:
-#             self.surr_csv = '__'.join([self.surr_csv_stem, self.suffix]).strip('__') if self.surr_csv_stem is not None else None
-#         else:
-#             self.surr_csv = self.surr_csv_stem
-#
-#     def set_raw_data_col(self):
-#         if len(self.suffix) > 0:
-#             self.raw_data_col = '__'.join([self.raw_data_var, self.suffix]).strip('__') if self.raw_data_var is not None else None
-#         else:
-#             self.raw_data_col = self.raw_data_var
-#
-#     def set_data_source(self, config,data_source='data' , var_data_csv=None, data_type='raw'):
-#         if var_data_csv is None:
-#             if data_type == 'raw':
-#                 var_data_csv = self.raw_data_csv
-#             elif data_type in ['surr', 'surrogate']:
-#                 var_data_csv = self.surr_csv
-#
-#         data_path, _ = choose_data_source(self.proj_dir, config, data_source, data_type=data_type, var_data_csv=var_data_csv)
-#         data_path = Path(data_path).parent
-#         return data_path
-#
-#     def get_color(self, config):
-#         if self.color is None:
-#             color_map = config.pal.to_dict()
-#             if color_map is not None and self.var_id in color_map:
-#                 self.color = color_map[self.var_id]
-#             else:
-#                 self.color = 'black'
-#
-#
-# class VarObject(DataVarConfig):
-#     def __init__(self, config, var_id=None, proj_dir=None, data_var_config=None):
-#         if data_var_config is not None and isinstance(data_var_config, DataVarConfig):
-#             # Copy all attributes from the provided DataVarConfig
-#             for key, value in data_var_config.__dict__.items():
-#                 setattr(self, key, value)
-#         else:
-#             # Initialize as a new DataVarConfig
-#             super().__init__(config, var_id, proj_dir)
-#
-#         self.ts = None
-#         self.ts_type = None # 'real' or 'surr'
-#         self.surr_num = None
-#         self.col_name = None
-#         self.time_var = None
-#
-#     def set_col_name(self):
-#         if self.ts_type == 'raw':
-#             self.col_name = self.raw_data_col
-#         elif self.ts_type == 'surr':
-#             self.col_name = f'{self.surr_prefix}_{self.surr_num}'
-#
-#     def standardize_time_var(self, specified_time_var, df, other_col):
-#
-#         if ('time' not in df.columns) and (specified_time_var is not None):
-#             df = df.rename(columns={specified_time_var: 'time'})
-#         if 'date' in df.columns:
-#             df = df.rename(columns={'date': 'time'})
-#         df['time'] = df['time'].astype('int')
-#
-#         return df, 'time'
-#
-#     def get_raw(self):
-#         # get raw timeseries data from csv
-#         self.ts_type = 'raw'
-#         self.set_col_name()
-#
-#         if (self.raw_data_dir_path/check_csv(self.raw_data_csv)).exists() is True:
-#             raw_data = pd.read_csv(self.raw_data_dir_path/check_csv(self.raw_data_csv))
-#             # print('raw data read', raw_data.head())
-#             raw_data = remove_extra_index(raw_data)
-#             # print('raw data before standardize', raw_data.head())
-#
-#             raw_data, time_var = self.standardize_time_var(self.raw_time_var, raw_data, self.col_name)
-#             self.time_var = time_var
-#             # print('raw data', raw_data.head())
-#
-#             self.ts = raw_data[[self.time_var, self.col_name]].copy()
-#
-#     def get_surr(self, surr_num=None):
-#         # print('sur', self.surr_data_dir_path / check_csv(self.surr_csv))
-#         if (self.surr_data_dir_path / check_csv(self.surr_csv)).exists() is True:
-#             surr_data = pd.read_csv(self.surr_data_dir_path / check_csv(self.surr_csv))
-#             surr_data = remove_extra_index(surr_data)
-#             # print(surr_data)
-#
-#             # self.surr_num = self.surr_num if self.surr_num is not None else surr_num
-#             self.set_col_name()
-#             self.ts_type = 'surr'
-#
-#             surr_data, time_var = self.standardize_time_var(self.raw_time_var, surr_data, self.col_name)
-#             self.time_var = time_var
-#             # print('surr data', surr_data[[self.time_var, self.col_name]].head())
-#             self.ts = surr_data[[self.time_var, self.col_name]].copy()
-#             # print(self.ts.head())
-
 def merge_variable_ts(col_var_obj, target_var_obj):
     col_df = col_var_obj.ts.rename(columns={col_var_obj.col_name: col_var_obj.var})
     target_df = target_var_obj.ts.rename(columns={target_var_obj.col_name: target_var_obj.var})
@@ -2632,7 +2067,6 @@ class CCMConfig(CMConfigBase):
         else:
             self.target_var_obj.get_real()
 
-
     def make_df(self):
         self.df = merge_variable_ts(self.col_var_obj, self.target_var_obj)
         # col_df = self.col_var_obj.ts.rename(columns={self.col_var_obj.col_name: self.col_var_obj.var})
@@ -2654,9 +2088,6 @@ class CCMConfig(CMConfigBase):
         # self.train_ind_f = self.df.index.values[-1] if self.train_ind_f is None else self.train_ind_f
         self.df = self.df.iloc[self.train_ind_i : self.train_ind_f].reset_index(drop=True) if self.train_ind_f is not None else self.df.iloc[self.train_ind_i : ].reset_index(drop=True)
         return self
-
-    # def make_time_embedding
-    # def make_depth_embedding
 
     def shift(self):
         shifted = self.df.copy()
@@ -2705,132 +2136,3 @@ class CCMConfig(CMConfigBase):
         self.outputgrp = OutputCollection(grp_specs= self.rc, in_table=ccm_out_df, tmp_dir=self.proj_dir/'tmp')
 
         return ccm_out_df, df_path
-#
-# class RelationshipSide:
-#     def __init__(self, r, relationship=None, var_x='temp', var_y='TSI', influence_word='causes'):
-#         self.var_x = var_x if relationship is None else relationship.var_x
-#         self.var_y = var_y if relationship is None else relationship.var_y
-#         self.influence_word = influence_word
-#
-#         self.surr_rx_count = None
-#         self.surr_rx_count_outperforming = None
-#         self.surr_ry_count = None
-#         self.surr_ry_count_outperforming = None
-#         self.delta_rho = None
-#         self.maxlibsize_rho = None
-#         self.lag = None
-#         self.surr_rx_outperforming_frac = None
-#         self.surr_ry_outperforming_frac = None
-#
-#
-#         # self.surr_rx
-#         # self.surr_ry
-#
-#         if r == 'r1':
-#             self.pattern = 'y causes x'
-#         elif r == 'r2':
-#             self.pattern = 'x causes y'
-#
-#
-#     @property
-#     def surr_rx(self):
-#         return self.pattern.replace('x', f'{self.var_x} (surr)').replace('y', self.var_y).replace('causes', self.influence_word)
-#
-#     @property
-#     def surr_ry(self):
-#         return self.pattern.replace('y', f'{self.var_y} (surr)').replace('x', self.var_x).replace('causes', self.influence_word)
-#
-#     @property
-#     def r(self):
-#         return self.pattern.replace('x', self.var_x).replace('y', self.var_y).replace('causes', self.influence_word)
-#
-#
-#
-# class Relationship:
-#
-#     def __init__(self, var_x='temp', var_y='TSI', surr_flag='neither'):
-#
-#         self.influence_word = 'causes'
-#         self.var_x = var_x
-#         self.var_y = var_y
-#         self.surr_flag = surr_flag
-#
-#         # self.active_r1 = self.set_active_r1()
-#         # self.active_r2 = self.set_active_r2()
-#
-#
-#     def set_influence_verb(self, verb):
-#         self.influence_word = verb
-#
-#
-#     def set_active_r1(self):
-#         if self.surr_flag in ('x', self.var_x):
-#             return self.surr_r1x
-#         elif self.surr_flag in ('neither'):
-#             return self.r1
-#         elif self.surr_flag in ('y', self.var_y):
-#             return self.surr_r1y
-#         elif self.surr_flag in ('both'):
-#             return self.surr_r1yx
-#
-#
-#     def set_active_r2(self):
-#         if self.surr_flag in ('x', self.var_x):
-#             return self.surr_r2x
-#         elif self.surr_flag in ('neither'):
-#             return self.r2
-#         elif self.surr_flag in ('y', self.var_y):
-#             return self.surr_r2y
-#         elif self.surr_flag in ('both'):
-#             return self.surr_r2yx
-#
-#     @property
-#     def r1(self):
-#         return f'{self.var_y} {self.influence_word} {self.var_x}'
-#
-#     @property
-#     def r2(self):
-#         return f'{self.var_x} {self.influence_word} {self.var_y}'
-#
-#     @property
-#     def surr_r1x(self):
-#         return f'{self.var_y} {self.influence_word} {self.var_x} (surr)'
-#
-#     @property
-#     def surr_r1y(self):
-#         return f'{self.var_y} (surr) {self.influence_word} {self.var_x}'
-#
-#     @property
-#     def surr_r2x(self):
-#         return f'{self.var_x} (surr) {self.influence_word} {self.var_y}'
-#
-#     @property
-#     def surr_r2y(self):
-#         return f'{self.var_x} {self.influence_word} {self.var_y} (surr)'
-#
-#     @property
-#     def surr_r2xy(self):
-#         return f'{self.var_x} (surr) {self.influence_word} {self.var_y} (surr)'
-#
-#     @property
-#     def surr_r2yx(self):
-#         return f'{self.var_x} (surr) {self.influence_word} {self.var_y} (surr)'
-#
-#     @property
-#     def surr_r2both(self):
-#         return f'{self.var_x} (surr) {self.influence_word} {self.var_y} (surr)'
-#
-#     @property
-#     def surr_r1xy(self):
-#         return f'{self.var_y} (surr) {self.influence_word} {self.var_x} (surr)'
-#
-#     @property
-#     def surr_r1yx(self):
-#         return f'{self.var_y} (surr) {self.influence_word} {self.var_x} (surr)'
-#
-#     @property
-#     def surr_r1both(self):
-#         return f'{self.var_y} (surr) {self.influence_word} {self.var_x} (surr)'
-#
-#
-#
