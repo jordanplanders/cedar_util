@@ -11,7 +11,7 @@ import pyarrow as pa
 pd.option_context('mode.use_inf_as_na', True)
 
 try:
-    from cedarkit.utils.routing import set_calc_path, set_output_path, check_location
+    from cedarkit.utils.routing import set_calc_path, set_output_path, check_location, sqlite_paths
     from cedarkit.utils.routing import check_csv
     from cedarkit.core.data_objects import *
     from cedarkit.viz.grids import GridCell
@@ -23,7 +23,7 @@ try:
 
 except ImportError:
     # Fallback: imports when running as a package
-    from utils.routing.paths import set_calc_path, set_output_path, check_location
+    from utils.routing.paths import set_calc_path, set_output_path, check_location, sqlite_paths
     from utils.routing.file_name_parsers import check_csv
     from core.data_objects import *
     from viz.grids import GridCell
@@ -41,13 +41,41 @@ logger = logging.getLogger(__name__)
 _REL_SEPS = [r"\s*->\s*", r"\s*→\s*", r"\s*=>\s*", r"\s+causes\s+", r"\s+influences\s+"]
 
 
-def _get_output_path(output_obj, attr_name):
-    if output_obj is None:
-        return None
-    attr_obj = getattr(output_obj, attr_name, None)
+def _normalize_lag_list(value, default_max_lag=None):
+    if isinstance(value, (list, tuple)):
+        return [int(v) for v in value]
+    if value is None or value == "":
+        if default_max_lag in (None, "", 0):
+            return []
+        ml = int(abs(int(default_max_lag)))
+        return list(range(-ml, ml + 1))
+    text = str(value).strip()
+    if not text:
+        return []
+    parts = [part.strip() for part in text.split(",") if part.strip()]
+    return [int(v) for v in parts]
+
+def _get_output_path(E_tau_pair, tmp_dir, attr_name, object_grid=None, output_obj=None):
+    E, tau=E_tau_pair[0], E_tau_pair[1]
+    attr_obj = None
+    if (output_obj is None) & (object_grid is not None):
+        try:
+            output_obj = object_grid[(E, tau)].output
+            attr_obj = getattr(output_obj, attr_name, None)
+        except:
+            pass
+
     if attr_obj is None:
-        return None
-    return getattr(attr_obj, "path", None)
+        files = [file for file in os.listdir(tmp_dir) if f'E{E}_tau{tau}__{attr_name}' in file]  # for debugging: list files in tmp_dir to see if expected files are present
+        print(files)
+        if len(files)==1:
+            return tmp_dir/files[0]
+        elif len(files)>1:
+            log_line(logger, f"Multiple files found for E={E}, tau={tau}, attr {attr_name}: {[str(f) for f in files]}. Unable to determine correct path.",
+                     indent=0, log_type="warning")
+            return None
+    else:
+        return getattr(attr_obj, "path", None)
 
 
 def _path_exists(path_like):
@@ -121,8 +149,11 @@ def _apply_relationship_safeguard(output_obj, allowed_vars, name):
         )
 
 
+
 def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, existing_output=None, calc_delta_rho_table=True,
-                   aggregate_libsize_table=True, calc_delta_rho_full=True):
+                   aggregate_libsize_table=True, calc_delta_rho_full=True, path_info=None, override_paths=False,
+                   collector_path=None, discovery_fn=None, row_query_fn=None,
+                   metric_lag_mode=None, smoothing_window=1, metric_relationship=None):
     '''
     Process a single (E, tau) configuration and return a GridCell object containing the results.
     Parameters:
@@ -148,48 +179,151 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
 
     test_grp = DataGroup(grp_info, tmp_dir=tmp_dir)
     print('\tgetting files', file=sys.stdout, flush=True)
+    path_info = path_info or {}
+    desired_paths = {
+        "delta_rho_stats": path_info.get("delta_rho_stats"),
+        "delta_rho_full": path_info.get("delta_rho_full"),
+        "libsize_aggregated": path_info.get("libsize_aggregated"),
+    }
+    calc_requests = {
+        "delta_rho_stats": bool(calc_delta_rho_table),
+        "delta_rho_full": bool(calc_delta_rho_full),
+        "libsize_aggregated": bool(aggregate_libsize_table),
+    }
 
-    test_grp.get_files(config, output_location ,
-                       file_name_pattern='E{E}_tau{tau}_lag{lag}', source='parquet')
+    grp_specs = test_grp.get_group_config()
+    new_output_col = OutputCollection(in_table=[], grp_specs=grp_specs, tmp_dir=tmp_dir)
 
-    # print(f'\tfound {len(test_grp.file_list)} files for E={grp_info["E"]}, tau={grp_info["tau"]}', file=sys.stdout, flush=True)
-    log_line(logger, f'\tfound {len(test_grp.file_list)} files for E={grp_info["E"]}, tau={grp_info["tau"]}', indent=0,
-             log_type="debug")
-    if len(test_grp.file_list) < 1:
-        print("Skipping because no files found.")
-        return
+    for attr_name, requested_path in desired_paths.items():
+        if requested_path is None:
+            continue
 
-    output_collections = []
-    for ij, groupconfig_file in enumerate(test_grp.file_list):
-        name = ''
+        if not _path_exists(requested_path):
+            log_line(logger, f"Provided path for {attr_name} does not exist: {requested_path}",
+                     indent=0, log_type="warning")
+            continue
         try:
-            name = groupconfig_file.output_path[0].name
-        except:
-            name = groupconfig_file.output_path
+            reused_output = Output(None, path=requested_path, tmp_dir=tmp_dir, outtype=attr_name)
+            reused_output.get_table()
+            setattr(new_output_col, attr_name, reused_output)
+            if override_paths is False:
+                calc_requests[attr_name] = False
+            log_line(logger, f"Reused existing {attr_name} from {requested_path}",
+                     indent=0, log_type="info")
+        except Exception as e:
+            log_line(logger, f"Unable to load provided path for {attr_name}: {requested_path}; {e}",
+                     indent=0, log_type="warning")
 
-        # print(f'\t1 processing file {ij + 1}/{len(test_grp.file_list)}: {name}', file=sys.stdout, flush=True)
-        log_line(logger, f'\t1 processing file {ij + 1}/{len(test_grp.file_list)}: {name}', indent=0,
-                 log_type="debug")
-        output_col = groupconfig_file.pull_output(to_table=False)
+    calc_delta_rho_table = calc_requests["delta_rho_stats"]
+    calc_delta_rho_full = calc_requests["delta_rho_full"]
+    aggregate_libsize_table = calc_requests["libsize_aggregated"]
 
-        full_out = bool(calc_delta_rho_full)
-        stats_out = bool(calc_delta_rho_table)
-        if (full_out is True) or (stats_out is True):
-            # print(f'\tcalculating delta rho for {name}; full_out {full_out}, stats_out {stats_out}', file=sys.stdout, flush=True)
-            log_line(logger, f'\tcalculating delta rho for {name}; full_out {full_out}, stats_out {stats_out}', indent=0,
-                     log_type="debug")
-            output_col = output_col.calc_delta_rho(full_out=full_out, stats_out=stats_out)
+    print('\tchecking if calculations are needed based on requested outputs and existing paths', file=sys.stdout, flush=True)
+    print(f'\tcalc_requests: {calc_requests}', file=sys.stdout, flush=True)
 
-        if aggregate_libsize_table is True:
-            output_col = output_col.aggregate_libsize()
+    # NEW: only run calculations when at least one output has been explicitly requested
+    if any(calc_requests.values()):
+        output_collections = []
 
-        # print(f'\tcalculated delta rho (full_out {full_out}, stats_out {stats_out}) and libsize aggregation ({aggregate_libsize_table}) {name}', file=sys.stdout, flush=True)
-        log_line(logger, f'\tcalculated delta rho (full_out {full_out}, stats_out {stats_out}) and libsize aggregation ({aggregate_libsize_table}) {name}',
+        if collector_path is not None:
+            test_grp.get_files(config, collector_path,
+                               discovery_fn=discovery_fn, row_query_fn=row_query_fn)
+        else:
+            test_grp.get_files(config, output_location,
+                               file_name_pattern='E{E}_tau{tau}_lag{lag}', source='parquet')
+
+        # print(f'\tfound {len(test_grp.file_list)} files for E={grp_info["E"]}, tau={grp_info["tau"]}', file=sys.stdout, flush=True)
+        log_line(logger, f'\tfound {len(test_grp.file_list)} files for E={grp_info["E"]}, tau={grp_info["tau"]}',
                  indent=0,
                  log_type="debug")
-        output_collections.append(output_col)
 
-    new_output_col = OutputCollection(in_table=output_collections, grp_specs=test_grp.get_group_config(), tmp_dir=tmp_dir)
+        if len(test_grp.file_list) < 1:
+            print("Skipping because no files found.")
+            return
+
+        for ij, groupconfig_file in enumerate(test_grp.file_list):
+            name = ''
+            try:
+                name = groupconfig_file.output_path[0].name
+            except Exception:
+                name = groupconfig_file.output_path
+
+            log_line(logger, f'\t1 processing file {ij + 1}/{len(test_grp.file_list)}: {name}', indent=0,
+                     log_type="debug")
+            output_col = groupconfig_file.pull_output(to_table=False)
+
+            if calc_delta_rho_table or calc_delta_rho_full:
+                log_line(logger,
+                         f'\tcalculating delta rho for {name}; full_out {bool(calc_delta_rho_full)}, stats_out {bool(calc_delta_rho_table)}',
+                         indent=0, log_type="debug")
+                output_col = output_col.calc_delta_rho(
+                    full_out=bool(calc_delta_rho_full),
+                    stats_out=bool(calc_delta_rho_table),
+                )
+
+            if aggregate_libsize_table is True:
+                output_col = output_col.aggregate_libsize()
+
+            log_line(logger,
+                     f'\tprocessed {name} with calc_delta_rho_table={calc_delta_rho_table}, '
+                     f'calc_delta_rho_full={calc_delta_rho_full}, aggregate_libsize_table={aggregate_libsize_table}',
+                     indent=0, log_type="debug")
+            output_collections.append(output_col)
+
+        computed_output_col = OutputCollection(in_table=output_collections, grp_specs=grp_specs, tmp_dir=tmp_dir)
+
+        # NEW: recomputed outputs are authoritative whenever their flag is True
+        if calc_requests["delta_rho_stats"]:
+            new_output_col.delta_rho_stats = computed_output_col.delta_rho_stats
+        if calc_requests["delta_rho_full"]:
+            new_output_col.delta_rho_full = computed_output_col.delta_rho_full
+        if calc_requests["libsize_aggregated"]:
+            new_output_col.libsize_aggregated = computed_output_col.libsize_aggregated
+
+
+    # # To construct each output collection type.
+    # output_collections = []
+    # for ij, groupconfig_file in enumerate(test_grp.file_list):
+    #     name = ''
+    #     try:
+    #         name = groupconfig_file.output_path[0].name
+    #     except:
+    #         name = groupconfig_file.output_path
+    #
+    #     # print(f'\t1 processing file {ij + 1}/{len(test_grp.file_list)}: {name}', file=sys.stdout, flush=True)
+    #     log_line(logger, f'\t1 processing file {ij + 1}/{len(test_grp.file_list)}: {name}', indent=0,
+    #              log_type="debug")
+    #     output_col = groupconfig_file.pull_output(to_table=False)
+    #
+    #     full_out = bool(calc_delta_rho_full)
+    #     stats_out = bool(calc_delta_rho_table)
+    #
+    #     if (full_out is True) or (stats_out is True):
+    #         # print(f'\tcalculating delta rho for {name}; full_out {full_out}, stats_out {stats_out}', file=sys.stdout, flush=True)
+    #         log_line(logger, f'\tcalculating delta rho for {name}; full_out {full_out}, stats_out {stats_out}', indent=0,
+    #                  log_type="debug")
+    #         output_col = output_col.calc_delta_rho(full_out=full_out, stats_out=stats_out)
+    #
+    #     if aggregate_libsize_table is True:
+    #         output_col = output_col.aggregate_libsize()
+    #
+    #     # print(f'\tcalculated delta rho (full_out {full_out}, stats_out {stats_out}) and libsize aggregation ({aggregate_libsize_table}) {name}', file=sys.stdout, flush=True)
+    #     log_line(logger, f'\tcalculated delta rho (full_out {full_out}, stats_out {stats_out}) and libsize aggregation ({aggregate_libsize_table}) {name}',
+    #              indent=0,
+    #              log_type="debug")
+    #     output_collections.append(output_col)
+
+    # if path_info:
+    #     new_output_col = OutputCollection(in_table=[], grp_specs=test_grp.get_group_config(), tmp_dir=tmp_dir)
+    #     for attr, path in path_info.items():
+    #         if path is not None and _path_exists(path):
+    #             setattr(new_output_col, attr, Output(None, path=path, outtype=attr, tmp_dir=tmp_dir))
+    # else:
+    #     new_output_col = OutputCollection(in_table=output_collections, grp_specs=test_grp.get_group_config(),
+    #                                       tmp_dir=tmp_dir)
+
+    # new_output_col = OutputCollection(in_table=output_collections, grp_specs=test_grp.get_group_config(), tmp_dir=tmp_dir)
+
     e_val = grp_info.get("E")
     tau_val = grp_info.get("tau")
     et_tag = f"E{e_val}_tau{tau_val}"
@@ -200,53 +334,68 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
         "libsize_aggregated": "not_requested",
     }
 
-    if aggregate_libsize_table is True:
-        libsize_aggregated_path = _get_output_path(existing_output, "libsize_aggregated")
-        if libsize_aggregated_path is not None and et_tag in str(libsize_aggregated_path):
+    if aggregate_libsize_table is False:
+        libsize_aggregated_path = _get_output_path((e_val, tau_val),tmp_dir,  "libsize_aggregated", output_obj=existing_output)
+        if libsize_aggregated_path is not None and et_tag in str(
+                libsize_aggregated_path) and new_output_col.libsize_aggregated is not None:
             new_output_col.libsize_aggregated.path = libsize_aggregated_path
 
-    if calc_delta_rho_table is True:
-        delta_rho_path = _get_output_path(existing_output, "delta_rho_stats")
-        if delta_rho_path is not None and et_tag in str(delta_rho_path):
+    if calc_delta_rho_table is False:
+        delta_rho_path = _get_output_path((e_val, tau_val),tmp_dir,  "delta_rho_stats", output_obj=existing_output)
+        if delta_rho_path is not None and et_tag in str(delta_rho_path) and new_output_col.delta_rho_stats is not None:
             new_output_col.delta_rho_stats.path = delta_rho_path
 
-    if calc_delta_rho_full is True:
-        delta_rho_path_full = _get_output_path(existing_output, "delta_rho_full")
-        if delta_rho_path_full is not None and et_tag in str(delta_rho_path_full):
+    if calc_delta_rho_full is False:
+        delta_rho_path_full = _get_output_path((e_val, tau_val),tmp_dir,  "delta_rho_full", output_obj=existing_output)
+        if delta_rho_path_full is not None and et_tag in str(
+                delta_rho_path_full) and new_output_col.delta_rho_full is not None:
             new_output_col.delta_rho_full.path = delta_rho_path_full
 
-    if new_output_col.libsize_aggregated is None and existing_output is not None:
-        try:
-            new_output_col.libsize_aggregated = existing_output.libsize_aggregated
-            if new_output_col.libsize_aggregated is not None:
-                new_output_col.libsize_aggregated.get_table()
-        except Exception as e:
-            log_line(logger, f"Unable to hydrate existing libsize_aggregated for E={e_val}, tau={tau_val}: {e}",
-                     indent=0, log_type="warning")
 
-    if new_output_col.delta_rho_stats is None and existing_output is not None:
-        try:
-            new_output_col.delta_rho_stats = existing_output.delta_rho_stats
-            if new_output_col.delta_rho_stats is not None:
-                new_output_col.delta_rho_stats.get_table()
-        except Exception as e:
-            log_line(logger, f"Unable to hydrate existing delta_rho_stats for E={e_val}, tau={tau_val}: {e}",
-                     indent=0, log_type="warning")
-
-    if new_output_col.delta_rho_full is None and existing_output is not None:
-        try:
-            new_output_col.delta_rho_full = existing_output.delta_rho_full
-            if new_output_col.delta_rho_full is not None:
-                new_output_col.delta_rho_full.get_table()
-        except Exception as e:
-            log_line(logger, f"Unable to hydrate existing delta_rho_full for E={e_val}, tau={tau_val}: {e}",
-                     indent=0, log_type="warning")
+    # if new_output_col.libsize_aggregated is None and existing_output is not None:
+    #     try:
+    #         new_output_col.libsize_aggregated = existing_output.libsize_aggregated
+    #         if new_output_col.libsize_aggregated is not None:
+    #             new_output_col.libsize_aggregated.get_table()
+    #     except Exception as e:
+    #         log_line(logger, f"Unable to hydrate existing libsize_aggregated for E={e_val}, tau={tau_val}: {e}",
+    #                  indent=0, log_type="warning")
+    #
+    # if new_output_col.delta_rho_stats is None and existing_output is not None:
+    #     try:
+    #         new_output_col.delta_rho_stats = existing_output.delta_rho_stats
+    #         if new_output_col.delta_rho_stats is not None:
+    #             new_output_col.delta_rho_stats.get_table()
+    #     except Exception as e:
+    #         log_line(logger, f"Unable to hydrate existing delta_rho_stats for E={e_val}, tau={tau_val}: {e}",
+    #                  indent=0, log_type="warning")
+    #
+    # if new_output_col.delta_rho_full is None and existing_output is not None:
+    #     try:
+    #         new_output_col.delta_rho_full = existing_output.delta_rho_full
+    #         if new_output_col.delta_rho_full is not None:
+    #             new_output_col.delta_rho_full.get_table()
+    #     except Exception as e:
+    #         log_line(logger, f"Unable to hydrate existing delta_rho_full for E={e_val}, tau={tau_val}: {e}",
+    #                  indent=0, log_type="warning")
 
     # Safeguard: keep only rows whose relationship is between the two vars declared in proj_config.
     allowed_vars = {config.col.var, config.target.var}
     _apply_relationship_safeguard(new_output_col.delta_rho_stats, allowed_vars, "delta_rho_stats")
     _apply_relationship_safeguard(new_output_col.delta_rho_full, allowed_vars, "delta_rho_full")
     _apply_relationship_safeguard(new_output_col.libsize_aggregated, allowed_vars, "libsize_aggregated")
+
+    if metric_lag_mode is not None and new_output_col.delta_rho_stats is not None:
+        try:
+            new_output_col.calc_metrics(
+                lag=metric_lag_mode,
+                smoothing_window=smoothing_window,
+                relationship_id=metric_relationship,
+            )
+            log_line(logger, f"calc_metrics completed for E={e_val}, tau={tau_val}", indent=0, log_type="info")
+        except Exception as e:
+            log_line(logger, f"calc_metrics failed for E={e_val}, tau={tau_val}: {e}", indent=0, log_type="warning")
+
     if aggregate_libsize_table is True and new_output_col.libsize_aggregated is not None:
         try:
             gb = new_output_col.libsize_aggregated.surrogate.group_by(["surr_var"]).aggregate([("surr_num", "count_distinct")])
@@ -404,8 +553,14 @@ if __name__ == "__main__":
 
     e_tau_grps_df = pd.read_csv(calc_location / check_csv(group_file_name))
 
-    output_location = resolve_consolidated_dir(calc_location, config, "parquet")
-    # output_parquet_location = output_location / output_config.dir_structure
+    source = getattr(args, 'source', 'parquet') or 'parquet'
+    if source == 'parquet':
+        output_location = resolve_consolidated_dir(calc_location, config, 'parquet')
+        sqlite_dir = None
+    else:
+        output_location = None
+        sqlite_dir = resolve_consolidated_dir(calc_location, config, 'sqlite')
+
     tmp_dir = proj_dir / tmp_dir
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -420,8 +575,136 @@ if __name__ == "__main__":
     E = row['E']
     tau = row['tau']
 
+    # Build sqlite callables after row is available (collector path depends on dyad name)
+    src_kwargs = {}
+    if source == 'sqlite':
+        output_dir = set_output_path(args, calc_location, config)
+        _sqlite_dir, collector_path, _run_db_path = sqlite_paths(
+            proj_dir,
+            config,
+            calc_location=calc_location,
+            output_dir=output_dir,
+            ensure=False,
+        )
+        log_line(logger, f'sqlite collector: {collector_path}', indent=0, log_type="info")
+
+        col_var_name = str(row.get("col_var") or getattr(getattr(config, "col", None), "var", "") or "")
+        target_var_name = str(row.get("target_var") or getattr(getattr(config, "target", None), "var", "") or "")
+        lag_list = _normalize_lag_list(row.get("lags"), default_max_lag=row.get("max_lag"))
+
+        def _discovery_fn(cp, grp_d):
+            return [grp_d]
+
+        def _row_query_fn(td):
+            cause_name_expr = "COALESCE(NULLIF(vca.name, ''), NULLIF(vci.cedarkit_var_id, ''), '')"
+            effect_name_expr = "COALESCE(NULLIF(veb.name, ''), NULLIF(vei.cedarkit_var_id, ''), '')"
+
+            clauses = []
+            params = {
+                "E": int(td["E"]),
+                "tau": int(td["tau"]),
+                "knn": int(td.get("knn") or 0),
+                "col_var_name": col_var_name,
+                "target_var_name": target_var_name,
+            }
+
+            clauses.append("mc_cause.E = :E")
+            clauses.append("mc_cause.tau = :tau")
+            clauses.append("rss.metric = 'corr'")
+            clauses.append(f"{cause_name_expr} IN (:col_var_name, :target_var_name)")
+            clauses.append(f"{effect_name_expr} IN (:col_var_name, :target_var_name)")
+            clauses.append(f"{cause_name_expr} != {effect_name_expr}")
+
+            tp_value = td.get("Tp", td.get("tp"))
+            if tp_value not in (None, ""):
+                clauses.append("rss.tp = :Tp")
+                params["Tp"] = int(tp_value)
+
+            draw_size = td.get("draw_size", td.get("sample"))
+            if draw_size not in (None, "", 0):
+                clauses.append("s.draw_size = :draw_size")
+                params["draw_size"] = int(draw_size)
+
+            max_lag = td.get("max_lag")
+            if max_lag not in (None, "", 0):
+                clauses.append("s.max_lag = :max_lag")
+                params["max_lag"] = int(max_lag)
+
+            if lag_list:
+                lag_placeholders = []
+                for i, lag in enumerate(lag_list):
+                    key = f"lag_{i}"
+                    lag_placeholders.append(f":{key}")
+                    params[key] = int(lag)
+                clauses.append(f"rss.lag IN ({', '.join(lag_placeholders)})")
+
+            sql = f"""
+            SELECT
+              mc_cause.E AS E,
+              mc_cause.tau AS tau,
+              rss.tp AS Tp,
+              rss.lag AS lag,
+              :knn AS knn,
+              CASE
+                WHEN COALESCE(vci.surrogate_number, 0) = 0 AND COALESCE(vei.surrogate_number, 0) = 0 THEN 'neither'
+                WHEN COALESCE(vci.surrogate_number, 0) > 0 AND COALESCE(vei.surrogate_number, 0) = 0 THEN {cause_name_expr}
+                WHEN COALESCE(vci.surrogate_number, 0) = 0 AND COALESCE(vei.surrogate_number, 0) > 0 THEN {effect_name_expr}
+                ELSE 'both'
+              END AS surr_var,
+              MAX(COALESCE(vci.surrogate_number, 0), COALESCE(vei.surrogate_number, 0)) AS surr_num,
+              {cause_name_expr} AS x_id,
+              0 AS x_age_model_ind,
+              {cause_name_expr} AS x_var,
+              {effect_name_expr} AS y_id,
+              0 AS y_age_model_ind,
+              {effect_name_expr} AS y_var,
+              s.draw_size AS LibSize,
+              ROW_NUMBER() OVER (
+                ORDER BY rss.run_id, rss.draw_id, rss.lag, {cause_name_expr}, {effect_name_expr}
+              ) - 1 AS ind_i,
+              {cause_name_expr} || ' -> ' || {effect_name_expr} AS relation,
+              {cause_name_expr} AS forcing,
+              {effect_name_expr} AS responding,
+              rss.run_id AS run_id,
+              rss.draw_id AS draw_id,
+              rss.value AS rho
+            FROM reconstruction_sampling_stat rss
+            JOIN sampling s ON s.draw_id = rss.draw_id
+            JOIN manifold_config mc_cause ON mc_cause.id = rss.cause_manifold_id
+            JOIN manifold_config mc_effect ON mc_effect.id = rss.effect_manifold_id
+            LEFT JOIN compound_variable_member cvmc ON cvmc.compound_variable_id = mc_cause.compound_variable_id
+            LEFT JOIN compound_variable_member cvme ON cvme.compound_variable_id = mc_effect.compound_variable_id
+            LEFT JOIN variable_instance vci ON vci.id = cvmc.variable_instance_id
+            LEFT JOIN variable_instance vei ON vei.id = cvme.variable_instance_id
+            LEFT JOIN variable vca ON vca.id = vci.variable_id
+            LEFT JOIN variable veb ON veb.id = vei.variable_id
+            """
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
+            sql += f" ORDER BY rss.run_id, rss.draw_id, rss.lag, {cause_name_expr}, {effect_name_expr}"
+            return sql, params
+
+        src_kwargs = dict(collector_path=collector_path,
+                          discovery_fn=_discovery_fn,
+                          row_query_fn=_row_query_fn)
+
+    metric_lag_mode = getattr(args, 'metric_lag_mode', None)
+    smoothing_window = getattr(args, 'smoothing_window', 1) or 1
+    metric_relationship = getattr(args, 'metric_relationship', None)
+    if metric_lag_mode is not None:
+        try:
+            metric_lag_mode = int(metric_lag_mode)
+        except (ValueError, TypeError):
+            pass  # keep as string ('pos' / 'neg')
+    src_kwargs.update(
+        metric_lag_mode=metric_lag_mode,
+        smoothing_window=smoothing_window,
+        metric_relationship=metric_relationship,
+    )
+
     E_is = {E: ik for ik, E in enumerate(np.arange(min(E_vals), max(E_vals) + 1))}
     tau_is = {tau: ik for ik, tau in enumerate(np.arange(min(tau_vals), max(tau_vals) + 1))}
+
 
     try:
         object_grid = joblib_cloud_load(tmp_dir / obj_grid_file_name)
@@ -433,13 +716,21 @@ if __name__ == "__main__":
     output_is_none = (not_in_grid is False) and ((object_grid[(E, tau)] is None) or (object_grid[(E, tau)].output is None))
 
     # print(f'E{E}-tau{tau}; not_in_grid: {not_in_grid}, output_is_none: {output_is_none}', file=sys.stdout, flush=True)
+    stats_path = _get_output_path((E, tau),  tmp_dir, "delta_rho_stats", object_grid=object_grid)
+    full_path = _get_output_path( (E, tau),  tmp_dir, "delta_rho_full", object_grid=object_grid)
+    libsize_path = _get_output_path( (E, tau),  tmp_dir, "libsize_aggregated", object_grid=object_grid)
+    path_info = {attr: _get_output_path( (E, tau),  tmp_dir, attr, object_grid=object_grid) for attr in ["delta_rho_stats", "delta_rho_full", "libsize_aggregated"]}
+    path_info = {key:value for key, value in path_info.items() if value is not None}
+    print(path_info, file=sys.stdout, flush=True)
+
     if not_in_grid is True or output_is_none is True:
         # print('regardless of flags, going the dual calculations', file=sys.stdout, flush=True)
         log_line(logger, 'regardless of flags, going the dual calculations', indent=0,
                  log_type="info")
 
         object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config, calc_delta_rho_table=True,
-                                               aggregate_libsize_table=True, calc_delta_rho_full=True)
+                                               aggregate_libsize_table=True, calc_delta_rho_full=True, path_info=path_info,
+                                               **src_kwargs)
 
         joblib_cloud_atomic_dump(object_grid, tmp_dir / obj_grid_file_name, compress=3,
                                  protocol=5)
@@ -456,9 +747,9 @@ if __name__ == "__main__":
                      log_type="info")
             # print('output is None, going the dual calculations', file=sys.stdout, flush=True)
         else:
-            stats_path = _get_output_path(object_grid[(E, tau)].output, "delta_rho_stats")
-            full_path = _get_output_path(object_grid[(E, tau)].output, "delta_rho_full")
-            libsize_path = _get_output_path(object_grid[(E, tau)].output, "libsize_aggregated")
+            # stats_path = _get_output_path(object_grid[(E, tau)].output, "delta_rho_stats")
+            # full_path = _get_output_path(object_grid[(E, tau)].output, "delta_rho_full")
+            # libsize_path = _get_output_path(object_grid[(E, tau)].output, "libsize_aggregated")
             if (object_grid[(E, tau)].output.delta_rho_stats is None) or (stats_path is None) or (not _path_exists(stats_path)):
                 calc_delta_rho_table = True
             if (object_grid[(E, tau)].output.delta_rho_full is None) or (full_path is None) or (not _path_exists(full_path)):
@@ -471,12 +762,14 @@ if __name__ == "__main__":
                  log_type="info")
         # print('calculations have been explicitly set: calc_delta_rho_table', calc_delta_rho_table,
         #       '; aggregate_libsize:', aggregate_libsize_table, file=sys.stdout, flush=True)
-        if (calc_delta_rho_table is True) or (aggregate_libsize_table is True) or (calc_delta_rho_table_full is True):
+        if bool(path_info) or (calc_delta_rho_table is True) or (aggregate_libsize_table is True) or (calc_delta_rho_table_full is True):
 
-            object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config, existing_output=object_grid[(E, tau)].output,
+            object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config,
+                                                   existing_output=object_grid[(E, tau)].output,
                                                        calc_delta_rho_table=calc_delta_rho_table,
                                                        aggregate_libsize_table=aggregate_libsize_table,
-                                                   calc_delta_rho_full = calc_delta_rho_table_full)
+                                                   calc_delta_rho_full=calc_delta_rho_table_full, path_info=path_info,
+                                                   **src_kwargs)
 
             joblib_cloud_atomic_dump(object_grid, tmp_dir/obj_grid_file_name, compress=3,
                                    protocol=5)
@@ -493,7 +786,7 @@ if __name__ == "__main__":
     try:
         if (E, tau) in object_grid and object_grid[(E, tau)] is not None and object_grid[(E, tau)].output is not None:
             out = object_grid[(E, tau)].output
-            full_path = _get_output_path(out, "delta_rho_full")
+            full_path = _get_output_path((E,tau), tmp_dir, "delta_rho_full", object_grid=object_grid)
             full_exists = _path_exists(full_path)
             full_requested = bool(calc_delta_rho_table_full) or bool(not_in_grid) or bool(output_is_none)
             full_status = "written" if full_exists else ("failed" if full_requested else "skipped")
