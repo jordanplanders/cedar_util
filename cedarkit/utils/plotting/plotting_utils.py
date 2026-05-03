@@ -15,7 +15,6 @@ try:
 except ImportError:
     # Fallback: imports when running as a package
     from utils.cli.logging import setup_logging, log_line
-# import cedarkit.utils
 
 
 def font_resizer(context='paper', multiplier=1.0):
@@ -125,105 +124,6 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
             logger.warning(f"Relation '{rel}' not found in palette keys: {list(palette.keys())}")
 
     return palette
-
-# def check_palette_syntax(palette, table, logger=None, default_color='gray'):
-#     relation_col = 'relation'
-#     if relation_col not in table.schema.names:
-#         relation_col = 'relation_0' if 'relation_0' in table.schema.names else None
-#     if relation_col is None:
-#         raise ValueError("No relation column found in table")
-#
-#     relations = [r for r in pc.unique(table[relation_col]).to_pylist() if r is not None]
-#     palette = dict(palette)
-#     # print(palette)
-#
-#     def parse_relation(rel):
-#         rel = rel.strip()
-#         # print(f"Parsing relation: '{rel}'")
-#         for word in (' influences ', ' causes ', ' reconstructs '):
-#             if word in rel:
-#                 x, y = rel.split(word, 1)
-#                 return x.strip(), word.strip(), y.strip()
-#         if '->' in rel:
-#             x, y = rel.split('->', 1)
-#             return x.strip(), '->', y.strip()
-#         return None, None, None
-#
-#     for rel in relations:
-#         # print(rel)
-#         if rel in palette:
-#             continue
-#
-#         x, kind, y = parse_relation(rel)
-#         # print(x, kind, y)
-#         if kind is None:
-#             palette[rel] = default_color
-#             if logger:
-#                 logger.warning(f"Unrecognized relation syntax: {rel}")
-#             continue
-#
-#         if kind in ('reconstructs', '->'):
-#             candidates = [
-#                 f'{x} reconstructs {y}',
-#                 f'{x} -> {y}',
-#                 f'{y} influences {x}',
-#                 f'{y} causes {x}',
-#             ]
-#         elif kind == 'influences':
-#             candidates = [
-#                 f'{x} influences {y}',
-#                 f'{x} causes {y}',
-#             ]
-#         else:  # causes
-#             candidates = [
-#                 f'{x} causes {y}',
-#                 f'{x} influences {y}',
-#             ]
-#
-#         match = next((k for k in candidates if k in palette), None)
-#         palette[rel] = palette[match] if match else default_color
-#
-#         if match is None and logger:
-#             logger.warning(f"Relation '{rel}' not found in palette keys: {list(palette.keys())}")
-#
-#     return palette
-
-
-# def check_palette_syntax(palette, table):
-#     relation_col = 'relation'
-#     if relation_col not in table.schema.names:
-#         relation_col = 'relation_0' if 'relation_0' in table.schema.names else None
-#     relations = pc.unique(table[relation_col]).to_pylist()
-#
-#     reconstructs_word = 'reconstructs' if any('->' or 'reconstructs' in r for r in relations) else None
-#     rel_word = 'causes' if any('cause' or 'influence' in r for r in relations) else None
-#
-#     if reconstructs_word is None and rel_word is not None:
-#         palette_rel_word = 'causes' if any('cause' in r for r in palette.keys()) else 'influences'
-#         # new_palette = {}
-#         # for k, v in palette.items():
-#         #     new_key = k.replace(palette_rel_word, rel_word)
-#         #     print(f"Replacing palette key '{k}' with '{new_key}'")
-#         #     new_palette[new_key] = v
-#         palette = {k.replace(palette_rel_word, rel_word): v for k, v in palette.items()}
-#         for rel in relations:
-#             if rel not in palette:
-#                 palette[rel.replace(palette_rel_word, rel_word)] = 'gray'  # default color for missing keys
-#                 logger.warning(f"Relation '{rel}' from data not found in palette keys: {list(palette.keys())}")
-#
-#     elif reconstructs_word is not None:
-#         palette_recon_word = 'reconstructs' if any('reconstructs' in r for r in palette.keys()) else '->'
-#         # new_palette = {}
-#         # for k, v in palette.items():
-#         #     new_key = k.replace(palette_recon_word, reconstructs_word)
-#         #     print(f"Replacing palette key '{k}' with '{new_key}'")
-#         #     new_palette[new_key] = v
-#         palette = {k.replace(palette_recon_word, reconstructs_word): v for k, v in palette.items()}
-#         for rel in relations:
-#             if rel not in palette:
-#                 palette[rel.replace(palette_recon_word, reconstructs_word)] = 'gray'  # default color for missing keys
-#                 logger.warning(f"Relation '{rel}' from data not found in palette keys: {list(palette.keys())}")
-#     return palette
 
 
 def build_discrete_lag_palette(lags, palette='coolwarm'):
