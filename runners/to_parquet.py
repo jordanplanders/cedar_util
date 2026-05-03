@@ -76,6 +76,7 @@ if __name__ == "__main__":
     else:
         proj_dir = Path(os.getcwd()) / proj_name
     print('Project directory:', proj_dir, file=sys.stdout, flush=True)
+    print('Current working directory:', Path.cwd(), file=sys.stdout, flush=True)
 
     config = load_config(proj_dir / 'proj_config.yaml')
 
@@ -85,9 +86,22 @@ if __name__ == "__main__":
 
     calc_location = set_calc_path(args, proj_dir, config, second_suffix)
     output_dir = resolve_consolidated_dir(calc_location, config, "parquet")
+    print(
+        'Routing summary:',
+        {
+            'proj_dir': str(proj_dir),
+            'calc_location': str(calc_location),
+            'calc_exists': calc_location.exists(),
+            'consolidated_output_dir': str(output_dir),
+            'consolidated_output_parent_exists': output_dir.parent.exists(),
+        },
+        file=sys.stdout,
+        flush=True,
+    )
     print('output_dir:', output_dir, file=sys.stdout, flush=True)
 
     calc_grps_csv = calc_location / check_csv(config.csvs.calc_grps)
+    print('calc_grps_csv:', calc_grps_csv, calc_grps_csv.exists(), file=sys.stdout, flush=True)
     calc_grps_df = pd.read_csv(calc_grps_csv)
     E_tau_grp_csv = args.parameters if args.parameters is not None else config.csvs.e_tau_grps
     if args.parameters is not None:
@@ -95,8 +109,10 @@ if __name__ == "__main__":
     else:
         print('Using E_tau groups from config:', config.csvs.e_tau_grps, file=sys.stdout, flush=True)
 
+    e_tau_grps_path = calc_location / check_csv(E_tau_grp_csv)
+    print('e_tau_grps_path:', e_tau_grps_path, e_tau_grps_path.exists(), file=sys.stdout, flush=True)
     try:
-        E_tau_grps = pd.read_csv(calc_location / check_csv(E_tau_grp_csv))
+        E_tau_grps = pd.read_csv(e_tau_grps_path)
     except:
         E_tau_grps = pd.DataFrame()
 
