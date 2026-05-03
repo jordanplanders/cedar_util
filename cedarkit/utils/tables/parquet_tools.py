@@ -53,8 +53,6 @@ def groupify_array(arr):
     return dic, counts, sort_idx, [0] + np.cumsum(counts)[:-1].tolist()
 
 
-# f = np.vectorize(hash)
-
 
 def columns_to_array(table, columns):
     columns = ([columns] if isinstance(columns, str) else list(set(columns)))
