@@ -281,49 +281,6 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
             new_output_col.libsize_aggregated = computed_output_col.libsize_aggregated
 
 
-    # # To construct each output collection type.
-    # output_collections = []
-    # for ij, groupconfig_file in enumerate(test_grp.file_list):
-    #     name = ''
-    #     try:
-    #         name = groupconfig_file.output_path[0].name
-    #     except:
-    #         name = groupconfig_file.output_path
-    #
-    #     # print(f'\t1 processing file {ij + 1}/{len(test_grp.file_list)}: {name}', file=sys.stdout, flush=True)
-    #     log_line(logger, f'\t1 processing file {ij + 1}/{len(test_grp.file_list)}: {name}', indent=0,
-    #              log_type="debug")
-    #     output_col = groupconfig_file.pull_output(to_table=False)
-    #
-    #     full_out = bool(calc_delta_rho_full)
-    #     stats_out = bool(calc_delta_rho_table)
-    #
-    #     if (full_out is True) or (stats_out is True):
-    #         # print(f'\tcalculating delta rho for {name}; full_out {full_out}, stats_out {stats_out}', file=sys.stdout, flush=True)
-    #         log_line(logger, f'\tcalculating delta rho for {name}; full_out {full_out}, stats_out {stats_out}', indent=0,
-    #                  log_type="debug")
-    #         output_col = output_col.calc_delta_rho(full_out=full_out, stats_out=stats_out)
-    #
-    #     if aggregate_libsize_table is True:
-    #         output_col = output_col.aggregate_libsize()
-    #
-    #     # print(f'\tcalculated delta rho (full_out {full_out}, stats_out {stats_out}) and libsize aggregation ({aggregate_libsize_table}) {name}', file=sys.stdout, flush=True)
-    #     log_line(logger, f'\tcalculated delta rho (full_out {full_out}, stats_out {stats_out}) and libsize aggregation ({aggregate_libsize_table}) {name}',
-    #              indent=0,
-    #              log_type="debug")
-    #     output_collections.append(output_col)
-
-    # if path_info:
-    #     new_output_col = OutputCollection(in_table=[], grp_specs=test_grp.get_group_config(), tmp_dir=tmp_dir)
-    #     for attr, path in path_info.items():
-    #         if path is not None and _path_exists(path):
-    #             setattr(new_output_col, attr, Output(None, path=path, outtype=attr, tmp_dir=tmp_dir))
-    # else:
-    #     new_output_col = OutputCollection(in_table=output_collections, grp_specs=test_grp.get_group_config(),
-    #                                       tmp_dir=tmp_dir)
-
-    # new_output_col = OutputCollection(in_table=output_collections, grp_specs=test_grp.get_group_config(), tmp_dir=tmp_dir)
-
     e_val = grp_info.get("E")
     tau_val = grp_info.get("tau")
     et_tag = f"E{e_val}_tau{tau_val}"
@@ -351,33 +308,6 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
                 delta_rho_path_full) and new_output_col.delta_rho_full is not None:
             new_output_col.delta_rho_full.path = delta_rho_path_full
 
-
-    # if new_output_col.libsize_aggregated is None and existing_output is not None:
-    #     try:
-    #         new_output_col.libsize_aggregated = existing_output.libsize_aggregated
-    #         if new_output_col.libsize_aggregated is not None:
-    #             new_output_col.libsize_aggregated.get_table()
-    #     except Exception as e:
-    #         log_line(logger, f"Unable to hydrate existing libsize_aggregated for E={e_val}, tau={tau_val}: {e}",
-    #                  indent=0, log_type="warning")
-    #
-    # if new_output_col.delta_rho_stats is None and existing_output is not None:
-    #     try:
-    #         new_output_col.delta_rho_stats = existing_output.delta_rho_stats
-    #         if new_output_col.delta_rho_stats is not None:
-    #             new_output_col.delta_rho_stats.get_table()
-    #     except Exception as e:
-    #         log_line(logger, f"Unable to hydrate existing delta_rho_stats for E={e_val}, tau={tau_val}: {e}",
-    #                  indent=0, log_type="warning")
-    #
-    # if new_output_col.delta_rho_full is None and existing_output is not None:
-    #     try:
-    #         new_output_col.delta_rho_full = existing_output.delta_rho_full
-    #         if new_output_col.delta_rho_full is not None:
-    #             new_output_col.delta_rho_full.get_table()
-    #     except Exception as e:
-    #         log_line(logger, f"Unable to hydrate existing delta_rho_full for E={e_val}, tau={tau_val}: {e}",
-    #                  indent=0, log_type="warning")
 
     # Safeguard: keep only rows whose relationship is between the two vars declared in proj_config.
     allowed_vars = {config.col.var, config.target.var}
@@ -808,20 +738,3 @@ if __name__ == "__main__":
             )
     except Exception as e:
         log_line(logger, f"Failed to emit cell summary for E={E}, tau={tau}: {e}", indent=0, log_type="error")
-
-    # Process if either calculation flag is set
-    # elif (calc_delta_rho_table is True) or (aggregate_libsize_table is True):
-    #     print('calculations have been explicitly set: calc_delta_rho_table', calc_delta_rho_table,
-    #           '; aggregate_libsize:', aggregate_libsize_table, file=sys.stdout, flush=True)
-    #
-    #     object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config, existing_output=object_grid[(E, tau)].output,
-    #                                            calc_delta_rho_table=calc_delta_rho_table,
-    #                                            aggregate_libsize_table=aggregate_libsize_table)
-    #
-    #     joblib_cloud_atomic_dump(object_grid, tmp_dir/obj_grid_file_name, compress=3,
-    #                        protocol=5)
-    #     del object_grid
-    #     gc.collect()
-    #     print(f"Processed and saved E={E}, tau={tau} to {tmp_dir}.", file=sys.stdout, flush=True)
-    # else:
-    #     print(f"Skipping E={E}, tau={tau} because already processed.", file=sys.stdout, flush=True)
