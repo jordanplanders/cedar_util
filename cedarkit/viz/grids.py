@@ -46,7 +46,6 @@ class GridCell:
         annotations = []
         self.relationships = None
 
-from collections.abc import Iterable
 class GridPlot:
     def __init__(self, nrows, ncols, width_ratios=None, height_ratios=None, grid_type='plot'):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
@@ -89,7 +88,7 @@ class GridPlot:
         if self.width_ratios is None:
             self.width_ratios = [1 for _ in range(self.ncols)]
         width_ratio_lists = [wr for wr in self.width_ratios if wr is not None and isinstance(wr, (list, tuple))]
-        # print('width_ratio_lists', width_ratio_lists)
+
         if len(width_ratio_lists) > 0:
             tmp_width_ratios = [sum(wr) for wr in width_ratio_lists]
             self.subfigs = self.fig.subfigures(self.nrows, max(1, len(width_ratio_lists)), wspace=wspace, hspace=hspace,
@@ -105,19 +104,15 @@ class GridPlot:
 
         if isinstance(self.subfigs, Iterable) is False or isinstance(self.subfigs, (str, bytes)):
             self.subfigs = [self.subfigs]
-            # width_ratio_lists = tmp_width_ratios
-        # print('tmp_width_ratios', tmp_width_ratios, len(width_ratio_lists), max(1, len(width_ratio_lists)))
-        print('subfigs', self.subfigs)
+
         subfigs_d = {}
         for row in range(self.nrows):
             if len(width_ratio_lists) == 0:
                 subfig = self.subfigs[row] if self.nrows > 1 else self.subfigs[0]
-                # print('subfig', subfig)
 
                 try:
                     axes = subfig.subplots(1, self.ncols, gridspec_kw=dict(wspace=wspace, hspace=hspace, width_ratios=self.width_ratios)) if self.ncols > 1 else [subfig.add_subplot(1, 1, 1)]
                 except:
-                    # print(subfig[0].subplots.nrows, subfig[0].subplots.ncols)
                     axes = subfig[0].subplots(1, self.ncols, gridspec_kw=dict(wspace=wspace, hspace=hspace, width_ratios=self.width_ratios)) if self.ncols > 1 else [subfig[0].add_subplot(1, 1, 1)]
                 if self.ncols == 1:
                     if hspace is not None:
@@ -128,12 +123,7 @@ class GridPlot:
                     self.occupied_dict[(row, col, 0)] = False
 
             else:
-                # subfig = self.subfigs[row] if self.nrows > 1 else self.subfigs[0]
-                # print('subfig', subfig)
                 col_subfigs = self.subfigs[row]
-
-                # col_subfigs = subfig.subfigures(1, len(width_ratio_lists), width_ratios=[sum(wr) for wr in width_ratio_lists],
-                #                                 wspace=wspace, hspace=hspace) if len(width_ratio_lists) > 1 else [subfig]
 
                 for ik, width_ratio_list in enumerate(width_ratio_lists):
                     subfigs_d[(row, ik)] = col_subfigs[ik]
@@ -143,27 +133,10 @@ class GridPlot:
                             plt.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=None, hspace=hspace)
 
                     for jx in range(len(width_ratio_list)):
-                        # col = sum([len(wr) for wr in width_ratio_lists[:ik]]) + jx
                         self.ax_grid[(row, ik, jx)] = axes[jx] if len(width_ratio_list) > 1 else axes[0]
                         self.occupied_dict[(row, ik, jx)] = False
+
         self.subfigs_d = subfigs_d
-
-        # else:
-        #     for row in range(self.nrows):
-        #         subfig = self.subfigs[row] if self.nrows > 1 else self.subfigs[0]
-        #         col_subfigs = subfig.subfigures(1, self.subfig_cols, width_ratios=[sum(wr) for wr in width_ratio_lists], wspace=wspace, hspace=hspace) if self.subfig_cols > 1 else [subfig]
-        #
-        #         for ik, width_ratio_list in enumerate(width_ratio_lists):
-        #             axes = col_subfigs[ik].subplots(1, len(width_ratio_list), gridspec_kw=dict(wspace=wspace, hspace=hspace, width_ratios=width_ratio_list)) if len(width_ratio_list) > 1 else [col_subfigs[ik].add_subplot(1, 1, 1)]
-        #             if len(width_ratio_list) == 1:
-        #                 if hspace is not None:
-        #                     plt.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=None, hspace=hspace)
-        #
-        #             for jx in range(len(width_ratio_list)):
-        #                 # col = sum([len(wr) for wr in width_ratio_lists[:ik]]) + jx
-        #                 self.ax_grid[(row, jx, ik)] = axes[jx] if len(width_ratio_list) > 1 else axes[0]
-        #                 self.occupied_dict[(row, jx, ik)] = False
-
 
     def get_ax(self, row, col, subfig_col=0):
         # ax.set_facecolor('none')
@@ -275,33 +248,10 @@ class GridPlot:
                         ax.set_ylim(ylims)
 
                     y_tick_list.append(yticks)
-            # print('got to the ened of central')
-            # for ik in range(self.nrows):
-            #     y_tick_list.append(yticks)
-        #
-        # elif ylim_by == 'subfig':
-        #     for ik, subfig in enumerate(self.subfigs):
-        #         _ylims = []
-        #         for im, ax in enumerate(subfig.axes):
-        #             if (len(ax.lines) == 0) and (len(ax.collections) == 0):
-        #                 continue
-        #             n_ylims = ax.get_ylim()
-        #             _ylims.append(n_ylims[0])
-        #             _ylims.append(n_ylims[1])
-        #         _ylims = (min(_ylims), max(_ylims))
-        #
-        #         if np.abs(_ylims[1]-_ylims[0])>1:
-        #             yticks = int_yticks_within_ylim(_ylims[0], _ylims[1])
-        #             ylims = (min(min(yticks), _ylims[0])- (yticks[1]-yticks[0])*0.4, _ylims[1]+ (yticks[1]-yticks[0])*0.4)
-        #
-        #         for ip, ax in enumerate(subfig.axes):
-        #             ax.set_ylim(ylims)
-        #         y_tick_list.append(yticks)
 
         elif ylim_by == 'cell':
             # for ik, subfig in enumerate(self.subfigs):
             print('ylim_by cell not implemented yet')
-
 
         for ik in range(self.nrows):
             row_keys = sorted([key for key in typed_keys if key[0] == ik], key=lambda x: (x[2], x[1]))
@@ -390,13 +340,7 @@ class GridPlot:
                     ax.tick_params(axis='y', length=0, width=1)
                     ax.tick_params(axis='x', length=0, width=1)
                     ax.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-                    ax.set_yticklabels([])
-                    ax.set_yticks([])
-                    ax.set_ylabel('')
-                    ax.set_xlabel('')
-                    ax.set_xticklabels([])
-                    ax.set_xticks([])
-                    ax.set_title('')
+                    ax.set(yticklabels=[], yticks=[], ylabel='', xlabel='', xticklabels=[], xticks=[], title='')
 
                 elif self.ax_grid_types[key] == 'cbar':
                     cbar_ylabel = ax.get_ylabel()
@@ -409,12 +353,7 @@ class GridPlot:
                     ax.tick_params(axis='y', length=0, width=1)
                     ax.tick_params(axis='x', length=0, width=1)
                     ax.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-                    ax.set_yticklabels([])
-                    ax.set_yticks([])
-                    ax.set_ylabel('')
-                    ax.set_xlabel('')
-                    ax.set_xticklabels([])
-                    ax.set_xticks([])
+                    ax.set(yticklabels= [], yticks=[], ylabel='', xlabel='', xticklabels=[], xticks=[])
 
                 elif self.ax_grid_types[key] =='title':
                     ax.set_facecolor('none')
@@ -422,12 +361,7 @@ class GridPlot:
                     ax.tick_params(axis='y', length=0, width=1)
                     ax.tick_params(axis='x', length=0, width=1)
                     ax.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-                    ax.set_yticklabels([])
-                    ax.set_yticks([])
-                    ax.set_ylabel('')
-                    ax.set_xlabel('')
-                    ax.set_xticklabels([])
-                    ax.set_xticks([])
+                    ax.set(yticklabels=[], yticks=[], ylabel='', xlabel='', xticklabels=[], xticks=[])
 
                     ax.set_title(self._format_latex_label(ax.get_title()), fontsize='large', fontweight='bold', pad=title_pad)
 
@@ -494,9 +428,7 @@ class GridPlot:
                                     ax.set_yticks(yticks[:-1])
                             else:
                                 if (keep_ylabels is False):
-                                    ax.set_ylabel('')
-                                    ax.set_yticklabels([])
-                                    ax.set_yticks([])
+                                    ax.set(ylabel='', yticklabels=[], yticks=[])
 
                             axis_ylabel = isotope_ylabel(ax.get_ylabel())
                             if axis_ylabel in ['', ' ', None]:
@@ -513,9 +445,8 @@ class GridPlot:
                             ax.spines['right'].set_visible(False)
 
                             if (keep_ylabels is False):
-                                ax.set_ylabel('')
-                                ax.set_yticklabels([])
-                                ax.set_yticks([])
+                                ax.set(ylabel='', yticklabels=[], yticks=[])
+
 
                     if (left_ax is None) or (keep_ylabels is True):
                         axis_ylabel = isotope_ylabel(ax.get_ylabel())
@@ -550,9 +481,7 @@ class GridPlot:
 
                     if (((len(ax.lines) == 0) and (len(ax.collections) == 0)) is True) or (
                             below_ax is not None):  # (ik < len(self.subfigs) - 1):
-                        ax.set_xlabel('')
-                        ax.set_xticklabels([])
-                        ax.set_xticks([])
+                        ax.set(xlabel='', xticklabels=[], xticks=[])
                         ax.spines['bottom'].set_visible(False)
 
 
@@ -587,84 +516,6 @@ class GridPlot:
                             ax.set_title(title_text, fontsize='large', fontweight='bold', pad=title_pad)
                         elif (ik > 0) and (supylabels is True):
                             ax.set_title('')
-        # for ik, subfig in enumerate(self.subfigs):
-        #     ylabel = isotope_ylabel(subfig.axes[0].get_ylabel())
-        #     print(ylabel, file=sys.stdout, flush=True)
-        #     ylabel_parts = ylabel.rsplit('\n', 1)
-        #     supylabel = ''
-        #     if len(ylabel_parts) > 1:
-        #         supylabel = replace_supylabel(ylabel_parts[0])
-        #         ylabel = '\n'.join(ylabel_parts[1:])
-
-            # # column-wise tidy
-            # for ip, ax in enumerate(subfig.axes):
-            #     ax.grid(False)
-            #     ax.tick_params(axis='y', length=5, width=1)
-            #     ax.tick_params(axis='x', length=5, width=1)
-            #     ax.spines['top'].set_visible(False)
-            #     print(self.ax_grid_types[(ik, ip)])
-            #
-            #     if self.ax_grid_types[(ik, ip)] == 'cbar':
-            #         print(self.ax_grid_types[(ik, ip)])#, 'plot'))
-            #         continue
-            #
-            #     if ip > 0:
-            #         ax.spines['left'].set_visible(False)
-            #         if ip < len(subfig.axes) - 1:
-            #             ax.spines['right'].set_visible(False)
-            #             ax.set_yticklabels([])
-            #             ax.set_yticks([])
-            #             ax.set_ylabel('')
-            #         else:
-            #             if ((len(ax.lines) == 0) and (len(ax.collections) == 0)) is True:
-            #                 ax.spines['right'].set_visible(False)
-            #                 ax.set_yticklabels([])
-            #                 ax.set_yticks([])
-            #                 ax.set_ylabel('')
-            #             else:
-            #                 ax.yaxis.tick_right()
-            #                 ax.spines['right'].set_visible(True)
-            #
-            #                 ylabel = isotope_ylabel(ax.get_ylabel())
-            #                 if supylabel != '':
-            #                     ylabel = ylabel.replace(supylabel, '').strip('\n')
-            #                 ax.set_ylabel(ylabel, rotation=-90, labelpad=25, va='center', fontsize='medium')
-            #                 ax.yaxis.set_label_position("right")
-            #
-            #     else:
-            #         if len(supylabel)>0:
-            #             subfig.supylabel(supylabel, x=supylabel_offset, va='center', ha='center', fontsize='large', fontweight='bold')
-            #             # subfig.axes[ip].set_ylabel(ylabel)
-            #
-            #         ax.yaxis.tick_left()
-            #
-            #         ax.spines['left'].set_visible(True)
-            #         ax.spines['right'].set_visible(False)
-            #         ax.set_ylabel(ylabel, rotation=90, labelpad=20, va='center', fontsize='medium')
-            #
-            #     if (((len(ax.lines) == 0) and (len(ax.collections) == 0)) is True) or (ik < len(self.subfigs) - 1):
-            #         ax.set_xlabel('')
-            #         ax.set_xticklabels([])
-            #         ax.set_xticks([])
-            #         ax.spines['bottom'].set_visible(False)
-            #
-            #     if ik >0:
-            #         if keep_titles is False:
-            #             ax.set_title('')
-            #     else:
-            #         if keep_titles is False:
-            #             ax.set_title(ax.get_title(), fontsize='large', fontweight='bold', pad=15)
-            #
-            #     if len(self.xlims) == 2:
-            #         if ((len(ax.lines) == 0) and (len(ax.collections) == 0)) is False:
-            #             ax.set_xlim(self.xlims)
-            #
-            #
-            #     yticks = y_tick_list[ik]
-            #     subfig.axes[0].spines['left'].set_bounds(yticks[0], yticks[-2])
-            #     subfig.axes[-1].spines['right'].set_bounds(yticks[0], yticks[-2])
-            #     subfig.axes[0].set_yticks(yticks[:-1])
-            #     subfig.axes[-1].set_yticks(yticks[:-1])
 
         if self.title is not None:
             self.fig.suptitle(self._format_latex_label(self.title), fontsize='x-large', fontweight='bold', y=titley)
@@ -805,20 +656,6 @@ class GridPlot:
             return False
 
         self.subfigs = [subfig for subfig in self.subfigs if _has_axes(subfig)]
-
-
-    # def plot_all(self, y_var='delta_rho', palette=None, scatter=False, surr_lines=False, stats_only=True):
-    #     for (row, col), (E, tau) in self.location_dict.items():
-    #         ax = self.axes[row, col] if self.nrows > 1 and self.ncols > 1 else (self.axes[col] if self.nrows == 1 else self.axes[row])
-    #         obj_key = (E, tau)
-    #         if obj_key in self.obj_dict:
-    #             output = self.obj_dict[obj_key]
-    #             lag_plot = LagPlot(y_var=y_var, ax=ax, palette=palette)
-    #             lag_plot.make_classic_lag_plot(output)
-    #             lag_plot.tidy_plot(legend=False)
-    #             ax.set_title(f'E={E}, τ={tau}')
-    #         else:
-    #             ax.axis('off')  # Turn off axis if no object for this position
 
 
 class SummaryGrid(GridPlot):
@@ -1025,181 +862,3 @@ class SummaryGrid(GridPlot):
 
         if len(handles) > 0:
             leg_ax.legend(handles, labels, bbox_to_anchor=bbox_to_anchor, loc='upper left', frameon=False)
-
-
-    # #@ TODO update GridPlot tidy_rows to handle cbar and spacers
-    # def tidy_rows(self, supylabels=True, ylim_by_row=False, supylabel_offset=0.04, titles=False, ylabels_off=True, ):
-    #     fall_back_ylab = r'$\tau$'
-    #     for ik, subfig in enumerate(self.subfigs):
-    #         ylabel = isotope_ylabel(subfig.axes[0].get_ylabel())
-    #         if ylabel in ['', ' ', None]:
-    #             ylabel = fall_back_ylab
-    #
-    #         ylabel_parts = ylabel.rsplit('\n', 1)
-    #         supylabel = ''
-    #         if len(ylabel_parts) > 1:
-    #             supylabel = replace_supylabel(ylabel_parts[0])
-    #             ylabel = '\n'.join(ylabel_parts[1:])
-    #
-    #         if supylabels is True:
-    #             subfig.supylabel(supylabel, x=supylabel_offset, va='center', ha='center', fontsize='large',
-    #                              fontweight='bold')
-    #             subfig.axes[0].set_ylabel(ylabel, rotation=90, labelpad=10, va='center', fontsize='medium')
-    #
-    #         subfig_d = {key: self.get_ax(*key) for key in self.ax_grid_types.keys() if key[0] == ik}
-    #         for key, ax in subfig_d.items():
-    #             if (self.ax_grid_types[key] is None) or (self.ax_grid_types[key] =='spacer'): #
-    #                 ax.set_facecolor('none')
-    #
-    #                 ax.grid(False)
-    #                 ax.tick_params(axis='y', length=0, width=1)
-    #                 ax.tick_params(axis='x', length=0, width=1)
-    #                 ax.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-    #                 ax.set_yticklabels([])
-    #                 ax.set_yticks([])
-    #                 ax.set_ylabel('')
-    #                 ax.set_xlabel('')
-    #                 ax.set_xticklabels([])
-    #                 ax.set_xticks([])
-    #
-    #             elif self.ax_grid_types[key] == 'cbar':
-    #                 cbar_ylabel = ax.get_ylabel()
-    #                 ax.set_ylabel(cbar_ylabel, rotation=0, labelpad=10, va='center', fontsize='medium')
-    #             else:
-    #                 ax.tick_params(axis='y', length=0, width=1)
-    #                 ax.tick_params(axis='x', length=0, width=1)
-    #                 ax.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-    #
-    #                 left_ax = None
-    #                 try:
-    #                     left_ax_types = [self.ax_grid_types[(key[0], ip, key[2])] for ip in range(key[1])]
-    #                     for iax, atype in enumerate(reversed(left_ax_types)):
-    #                         if atype in ['spacer']:
-    #                             pass
-    #                         elif atype in ['cbar', 'plot']:
-    #                             left_ax = self.get_ax(key[0], key[1]- (iax +1), key[2])
-    #                             break
-    #                         elif atype is None:
-    #                             break
-    #                     # left_ax = self.ax_grid_types[(key[0], key[1]-1, key[2])]
-    #                 except Exception as e:
-    #                     pass
-    #
-    #                 if (left_ax is not None) and (ylabels_off is True):
-    #                         ax.set_ylabel('')
-    #                         ax.set_yticklabels([])
-    #                         ax.set_yticks([])
-    #                 else:
-    #                     ax.yaxis.tick_left()
-    #                     ax.set_ylabel(ylabel, rotation=90, labelpad=10, va='center', fontsize='medium')
-    #
-    #                 next_ax = None
-    #                 try:
-    #                     next_ax = self.ax_grid_types[(key[0]+1, key[1], key[2])]
-    #                 except Exception as e:
-    #                     pass
-    #
-    #                 if (((len(ax.lines) == 0) and (len(ax.collections) == 0)) is True) or (next_ax is not None):#(ik < len(self.subfigs) - 1):
-    #                     ax.set_xlabel('')
-    #                     ax.set_xticklabels([])
-    #                     ax.set_xticks([])
-    #                     # ax.spines['bottom'].set_visible(False)
-    #                 else:
-    #                     xlabel = ax.get_xlabel()
-    #                     xlabel = xlabel.replace('delta', 'Δ').replace('rho', 'ρ').replace('_', ' ')
-    #                     ax.set_xlabel(xlabel)
-    #                     xticks = ax.get_xticks()
-    #                     ax.get_xticklabels()
-    #
-    #                 if titles == 'individual':
-    #                     ax.set_title(ax.get_title(), fontsize='large', fontweight='bold', pad=10)
-    #                 else:
-    #                     if (ik > 0) and (supylabels is True):
-    #                         ax.set_title('')
-    #                         # print('removed title')
-    #                     else:
-    #                         # print('kept title')
-    #                         ax.set_title(ax.get_title(), fontsize='large', fontweight='bold', pad=15)
-
-            # for ip, ax in enumerate(subfig.axes[:-1]):
-            #     # ax.grid(False)
-            #
-            #     if (ik, ip, subfig_col) in self.ax_grid_types.keys() and self.ax_grid_types[(ik, ip,subfig_col )] == 'cbar':
-            #         cbar_ylabel = ax.get_ylabel()
-            #         ax.set_ylabel(cbar_ylabel, rotation=0, labelpad=10, va='center', fontsize='medium')
-            #         continue
-            #     if (ik, ip, subfig_col) not in self.ax_grid_types:
-            #         ax.set_facecolor('none')
-            #     ax.tick_params(axis='y', length=0, width=1)
-            #     ax.tick_params(axis='x', length=0, width=1)
-            #     ax.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-            #
-            #     if ip > 0:
-            #         # ax.spines['left'].set_visible(False)
-            #         # if ip < len(subfig.axes) - 1:
-            #             # ax.spines['right'].set_visible(False)
-            #         ax.set_yticklabels([])
-            #         ax.set_yticks([])
-            #         ax.set_ylabel('')
-            #         # else:
-            #         #     if ((len(ax.lines) == 0) and (len(ax.collections) == 0)) is True:
-            #         #         ax.spines['right'].set_visible(False)
-            #         #         ax.set_yticklabels([])
-            #         #         ax.set_yticks([])
-            #         #         ax.set_ylabel('')
-            #         #     else:
-            #         #         ax.yaxis.tick_right()
-            #         #         ax.spines['right'].set_visible(True)
-            #     # else:
-            #     #     ylabel = isotope_ylabel(ax.get_ylabel())
-            #     #     if supylabel != '':
-            #     #         ylabel = ylabel.replace(supylabel, '').strip('\n')
-            #     #     ax.set_ylabel(ylabel, rotation=-90, labelpad=25, va='center', fontsize='medium')
-            #     #     # ax.yaxis.set_label_position("right")
-            #     #
-            #     else:
-            #
-            #         ax.yaxis.tick_left()
-            #
-            #         # ax.spines['left'].set_visible(False)
-            #         # ax.spines['right'].set_visible(False)
-            #         # print('ylabel after:', ylabel)
-            #
-            #     if (((len(ax.lines) == 0) and (len(ax.collections) == 0)) is True) or (ik < len(self.subfigs) - 1):
-            #         ax.set_xlabel('')
-            #         ax.set_xticklabels([])
-            #         ax.set_xticks([])
-            #         # ax.spines['bottom'].set_visible(False)
-            #     else:
-            #         xlabel = ax.get_xlabel()
-            #         xlabel = xlabel.replace('delta', 'Δ').replace('rho', 'ρ').replace('_', ' ')
-            #         ax.set_xlabel(xlabel)
-            #         xticks = ax.get_xticks()
-            #         ax.get_xticklabels()
-            #
-            #     if titles is 'individual':
-            #         ax.set_title(ax.get_title(), fontsize='large', fontweight='bold', pad=10)
-            #     else:
-            #         if (ik >0) and (supylabels is True):
-            #             ax.set_title('')
-            #             # print('removed title')
-            #         else:
-            #             # print('kept title')
-            #             ax.set_title(ax.get_title(), fontsize='large', fontweight='bold', pad=15)
-            # if (ik, ip+1) in self.ax_grid_types and self.ax_grid_types[(ik, ip+1)] == 'cbar':
-            #     ax = subfig.axes[-1]
-            #     cbar_ylabel = ax.get_ylabel()
-            #     ax.set_ylabel(cbar_ylabel, rotation=0, labelpad=10, va='center', fontsize='medium')
-            # if (ik, ip+1) not in self.ax_grid_types:
-            #     ax = subfig.axes[-1]
-            #     ax.set_facecolor('none')
-            #     ax.grid(False)
-            #     ax.tick_params(axis='y', length=0, width=1)
-            #     ax.tick_params(axis='x', length=0, width=1)
-            #     ax.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-            #     ax.set_yticklabels([])
-            #     ax.set_yticks([])
-            #     ax.set_ylabel('')
-            #     ax.set_xlabel('')
-            #     ax.set_xticklabels([])
-            #     ax.set_xticks([])
