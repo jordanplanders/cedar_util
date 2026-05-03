@@ -64,6 +64,8 @@ def setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, output_dir
 
     intermediate_output = resolve_intermediate_dir(calc_location, config, intermediate_type)
     e_tau_dir_read = intermediate_output / template_replace(E_tau_grp_pattern, parts_d, return_replaced=False)
+    legacy_output = None
+    legacy_dir = None
 
     # Backward-compat: some runs wrote CSVs under calc_refactor (output_dir) instead of intermediate/csv.
     # If intermediate is missing for this group, fall back to legacy output root.
@@ -78,23 +80,47 @@ def setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, output_dir
             )
             e_tau_dir_read = legacy_dir
 
-    print('intermediate_output', intermediate_output, file=sys.stdout, flush=True)
-    print('E_tau_grp_pattern', E_tau_grp_pattern, parts_d, file=sys.stdout, flush=True)
-    print('e_tau_dir_read', e_tau_dir_read, file=sys.stdout, flush=True)
+    print(
+        'setup_conversion_from_calc_grp routing:',
+        {
+            'calc_location': str(calc_location),
+            'group': {k: parts_d.get(k) for k in ('col_var_id', 'target_var_id', 'E', 'tau', 'Tp', 'knn', 'lag')},
+            'intermediate_output': str(intermediate_output),
+            'intermediate_exists': intermediate_output.exists(),
+            'candidate_source_dir': str(e_tau_dir_read),
+            'candidate_source_exists': e_tau_dir_read.exists(),
+            'legacy_output': None if legacy_output is None else str(legacy_output),
+            'legacy_dir': None if legacy_dir is None else str(legacy_dir),
+            'legacy_dir_exists': None if legacy_dir is None else legacy_dir.exists(),
+            'pattern': E_tau_grp_pattern,
+        },
+        file=sys.stdout,
+        flush=True,
+    )
     # directory of future parquet output
     consolidated_output_location = resolve_consolidated_dir(calc_location, config, consolidated_type)
 
     e_tau_dir_write = consolidated_output_location/template_replace(E_tau_grp_pattern, parts_d, return_replaced=False)
+    print(
+        'setup_conversion_from_calc_grp write target:',
+        {
+            'consolidated_output_location': str(consolidated_output_location),
+            'consolidated_parent_exists': consolidated_output_location.parent.exists(),
+            'e_tau_dir_write': str(e_tau_dir_write),
+        },
+        file=sys.stdout,
+        flush=True,
+    )
 
     # pull from config
     col_var = config.col.var
     target_var = config.target.var
 
-    return {'e_tau_dir_read': e_tau_dir_read, 'e_tau_dir_write':e_tau_dir_write, 'parts_d': parts_d, 'col_var': col_var, 'target_var': target_var, 'config': config}
+    return {'e_tau_source_dir': e_tau_dir_read, 'e_tau_dir_write':e_tau_dir_write, 'parts_d': parts_d, 'col_var': col_var, 'target_var': target_var, 'config': config}
 
 
 def package_calc_grp_results_to_parquet(
-    e_tau_dir_read: Path,
+    e_tau_source_dir: Path,
     e_tau_dir_write: Path,
     parts_d: str,
     col_var: str,            # e.g., 'temp'
@@ -107,7 +133,7 @@ def package_calc_grp_results_to_parquet(
     '''
     Packages calculation group results from CSV files into Parquet format (E-tau-lag units).
     Parameters:
-        e_tau_dir_read (Path): Directory path to read CSV files from.
+        e_tau_source_dir (Path): Directory path to read CSV files from.
         e_tau_dir_write (Path): Directory path to write Parquet files to.
         parts_d (dict): Calculation group dictionary containing parameters like E, tau, Tp, knn, etc.
         col_var (str): Name of the column variable (e.g., 'temp').
@@ -135,38 +161,50 @@ def package_calc_grp_results_to_parquet(
     existing = []
     write_paths = []
 
-    print('from parquet', e_tau_dir_read, e_tau_dir_read.exists(), e_tau_dir_read.is_dir(), file=sys.stdout, flush=True)
+    print(
+        'package_calc_grp_results_to_parquet source:',
+        {
+            'e_tau_source_dir': str(e_tau_source_dir),
+            'exists': e_tau_source_dir.exists(),
+            'is_dir': e_tau_source_dir.is_dir(),
+            'e_tau_dir_write': str(e_tau_dir_write),
+        },
+        file=sys.stdout,
+        flush=True,
+    )
     # if CSV input directory does not exist, return
-    if not e_tau_dir_read.exists() or not e_tau_dir_read.is_dir():
-        print(f"Directory {e_tau_dir_read} does not exist or is not a directory", file=sys.stderr, flush=True)
-        print(f"Directory {e_tau_dir_read} does not exist or is not a directory", file=sys.stdout, flush=True)
+    if not e_tau_source_dir.exists() or not e_tau_source_dir.is_dir():
+        print(f"Source directory {e_tau_source_dir} does not exist or is not a directory", file=sys.stderr, flush=True)
+        print(f"Source directory {e_tau_source_dir} does not exist or is not a directory", file=sys.stdout, flush=True)
         return write_paths, existing
 
     lag_dir = None
     lag_dir_d = defaultdict(list)
     if lag is not None:
-        if (e_tau_dir_read / f'lag_{lag}').exists() is True:
-            lag_dir = e_tau_dir_read / f'lag_{lag}'
-        elif (e_tau_dir_read / f'lag{lag}').exists() is True:
-            lag_dir = e_tau_dir_read / f'lag{lag}'
+        if (e_tau_source_dir / f'lag_{lag}').exists() is True:
+            lag_dir = e_tau_source_dir / f'lag_{lag}'
+        elif (e_tau_source_dir / f'lag{lag}').exists() is True:
+            lag_dir = e_tau_source_dir / f'lag{lag}'
 
         if lag_dir is not None:
             lag_dir_d[lag] = [lag_dir / fn for fn in os.listdir(lag_dir) if fn.endswith('.csv')]
     else:
-        lag_dirs = [entry for entry in sorted(os.listdir(e_tau_dir_read)) if entry.startswith("lag")]
+        lag_dirs = [entry for entry in sorted(os.listdir(e_tau_source_dir)) if entry.startswith("lag")]
         if len(lag_dirs) == 0:
-            print(f"No lag* subdirectories found under {e_tau_dir_read}", file=sys.stdout, flush=True)
+            print(f"No lag* subdirectories found under source {e_tau_source_dir}", file=sys.stdout, flush=True)
             return write_paths, existing
         else:
-            print(f"Found {len(lag_dirs)} lag* subdirectories under {e_tau_dir_read}",file=sys.stdout, flush=True)
-            e_tau_dir_write.mkdir(exist_ok=True, parents=True)
+            print(f"Found {len(lag_dirs)} lag* subdirectories under source {e_tau_source_dir}",file=sys.stdout, flush=True)
+            # e_tau_dir_write.mkdir(exist_ok=True, parents=True)
 
         # gather CSV files under each lag directory
         for entry in lag_dirs:
-            lag_dir = Path(os.path.join(e_tau_dir_read, entry))
+            lag_dir = Path(os.path.join(e_tau_source_dir, entry))
             if os.path.isdir(lag_dir) is True:
                 lag = int(entry.replace('lag', ''))
                 lag_dir_d[lag]+= [lag_dir/fn for fn in os.listdir(lag_dir) if fn.endswith('.csv')]
+
+    e_tau_dir_write.mkdir(exist_ok=True, parents=True)
 
     # process each lag directory, gathering records checking to see if they have already been added to the target parquet file, finally writing to Parquet
     for lag, csvs in lag_dir_d.items():
@@ -189,6 +227,7 @@ def package_calc_grp_results_to_parquet(
             recorded_parquet = drop_duplicates(existing_parquet_table, on=['E', 'tau', 'lag', 'Tp', 'knn', 'surr_var', 'surr_num', 'x_id', 'y_id'])
             recorded_parquet_df = recorded_parquet.to_pandas()
             recorded_parquet_df = recorded_parquet_df.rename(columns = {'x_id':'col_var_id', 'y_id':'target_var_id'})
+            existing.append(write_path)
 
         # Process each CSV
         time_start = time.time()
@@ -305,7 +344,7 @@ def package_calc_grp_results_to_parquet(
         print(f"\tCompleted reading {len(csvs)} files under E{E}_tau{tau}, lag={lag} in {time_end - time_start:.2f} seconds", file=sys.stdout, flush=True)
 
         if len(records)==0:
-            print(f"\tNo new CSV rows discovered under {e_tau_dir_read}, lag={lag}; existing={len(sub_existing)}", file=sys.stdout, flush=True)
+            print(f"\tNo new CSV rows discovered under {e_tau_source_dir}, lag={lag}; existing={len(sub_existing)}", file=sys.stdout, flush=True)
             existing.append(write_path)
             continue
 
