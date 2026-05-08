@@ -104,14 +104,41 @@ def _parse_relation_pair(rel):
 
 
 def _filter_table_to_config_vars(table, allowed_vars):
-    if table is None or table.num_rows == 0:
+    def _row_count(obj):
+        if obj is None:
+            return 0
+        if isinstance(obj, pa.Table):
+            return obj.num_rows
+        if isinstance(obj, pl.LazyFrame):
+            return obj.collect().height
+        if isinstance(obj, pl.DataFrame):
+            return obj.height
+        if isinstance(obj, pd.DataFrame):
+            return len(obj)
+        raise TypeError(f"Unsupported table type: {type(obj)}")
+
+    if table is None or _row_count(table) == 0:
         return table
 
     allowed = {str(v).strip().lower() for v in allowed_vars if v is not None}
     if len(allowed) != 2:
         return table
 
-    df = table.to_pandas()
+    if isinstance(table, pa.Table):
+        df = table.to_pandas()
+        source_type = "arrow"
+    elif isinstance(table, pl.LazyFrame):
+        df = table.collect().to_pandas()
+        source_type = "lazy"
+    elif isinstance(table, pl.DataFrame):
+        df = table.to_pandas()
+        source_type = "polars"
+    elif isinstance(table, pd.DataFrame):
+        df = table.copy()
+        source_type = "pandas"
+    else:
+        raise TypeError(f"Unsupported table type: {type(table)}")
+
     if len(df) == 0:
         return table
 
@@ -130,16 +157,35 @@ def _filter_table_to_config_vars(table, allowed_vars):
 
     mask = lhs.isin(allowed) & rhs.isin(allowed) & (lhs != rhs)
     filtered_df = df[mask].copy()
-    return pa.Table.from_pandas(filtered_df, preserve_index=False)
+    if source_type == "arrow":
+        return pa.Table.from_pandas(filtered_df, preserve_index=False)
+    if source_type == "lazy":
+        return pl.from_pandas(filtered_df).lazy()
+    if source_type == "polars":
+        return pl.from_pandas(filtered_df)
+    return filtered_df
 
 
 def _apply_relationship_safeguard(output_obj, allowed_vars, name):
+    def _row_count(obj):
+        if obj is None:
+            return 0
+        if isinstance(obj, pa.Table):
+            return obj.num_rows
+        if isinstance(obj, pl.LazyFrame):
+            return obj.collect().height
+        if isinstance(obj, pl.DataFrame):
+            return obj.height
+        if isinstance(obj, pd.DataFrame):
+            return len(obj)
+        raise TypeError(f"Unsupported table type: {type(obj)}")
+
     if output_obj is None:
         return
     output_obj.get_table()
-    before = 0 if output_obj._full is None else output_obj._full.num_rows
+    before = _row_count(output_obj._full)
     output_obj._full = _filter_table_to_config_vars(output_obj._full, allowed_vars)
-    after = 0 if output_obj._full is None else output_obj._full.num_rows
+    after = _row_count(output_obj._full)
     if before != after:
         log_line(
             logger,
@@ -353,7 +399,16 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
         if full_obj is not None:
             try:
                 full_obj.get_table()
-                pre_rows = 0 if full_obj._full is None else full_obj._full.num_rows
+                if isinstance(full_obj._full, pa.Table):
+                    pre_rows = full_obj._full.num_rows
+                elif isinstance(full_obj._full, pl.LazyFrame):
+                    pre_rows = full_obj._full.collect().height
+                elif isinstance(full_obj._full, pl.DataFrame):
+                    pre_rows = full_obj._full.height
+                elif isinstance(full_obj._full, pd.DataFrame):
+                    pre_rows = len(full_obj._full)
+                else:
+                    pre_rows = 0 if full_obj._full is None else 0
                 log_line(logger, f"delta_rho_full pre-write rows for E={e_val}, tau={tau_val}: {pre_rows}",
                          indent=0, log_type="info")
             except Exception as e:
@@ -474,6 +529,7 @@ if __name__ == "__main__":
             aggregate_libsize_table = True
         if 'calc_delta_rho_full' in args.flags:
             calc_delta_rho_table_full = True
+        print(args.flags, file=sys.stdout, flush=True)
 
     calc_location = set_calc_path(args, proj_dir, config)
     log_line(logger, f'Calculation location: {calc_location}', indent=0, log_type="info")
@@ -657,9 +713,12 @@ if __name__ == "__main__":
         # print('regardless of flags, going the dual calculations', file=sys.stdout, flush=True)
         log_line(logger, 'regardless of flags, going the dual calculations', indent=0,
                  log_type="info")
-
-        object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config, calc_delta_rho_table=True,
-                                               aggregate_libsize_table=True, calc_delta_rho_full=True, path_info=path_info,
+        if args.flags is None:
+            calc_delta_rho_table = True
+            aggregate_libsize_table = True
+            calc_delta_rho_table_full = True
+        object_grid[(E, tau)] = process_config(row, E_is[E], tau_is[tau], tmp_dir, output_location, config, calc_delta_rho_table=calc_delta_rho_table,
+                                               aggregate_libsize_table=aggregate_libsize_table, calc_delta_rho_full=calc_delta_rho_table_full, path_info=path_info,
                                                **src_kwargs)
 
         joblib_cloud_atomic_dump(object_grid, tmp_dir / obj_grid_file_name, compress=3,
@@ -670,9 +729,10 @@ if __name__ == "__main__":
         # print(f"Processed and saved E={E}, tau={tau} to {tmp_dir}.", file=sys.stdout, flush=True)
     else:
         if object_grid[(E, tau)].output is None:
-            calc_delta_rho_table = True
-            aggregate_libsize_table = True
-            calc_delta_rho_table_full = True
+            if args.flags is None:
+                calc_delta_rho_table = True
+                aggregate_libsize_table = True
+                calc_delta_rho_table_full = True
             log_line(logger, 'output is None, going the dual calculations', indent=0,
                      log_type="info")
             # print('output is None, going the dual calculations', file=sys.stdout, flush=True)
