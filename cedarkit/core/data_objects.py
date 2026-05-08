@@ -98,7 +98,7 @@ def check_return(table):
 
 
 def compute_delta_rho_grp(
-        lag_tbl: pa.Table,
+        lag_tbl,
         gd: dict,
         # *,
         stats: bool = True,
@@ -126,50 +126,55 @@ def compute_delta_rho_grp(
         - delta rho = max libsize mean rho - min libsize mean rho
         - full vectors with bootstrap-style paired sampling (with replacement)
 
-    Returns (stats_tbl | None, full_tbl | None) as pyarrow.Table objects.
+    Returns (stats_tbl | None, full_tbl | None) as Polars LazyFrames.
 
     Used by OutputGrp.calc_delta_rho
     """
     # lag_tbl = self.table.full
-    if lag_tbl is None or lag_tbl.num_rows == 0:
+    if isinstance(lag_tbl, pa.Table):
+        lag_df = lag_tbl.to_pandas()
+    elif isinstance(lag_tbl, pl.LazyFrame):
+        lag_df = lag_tbl.collect().to_pandas()
+    elif isinstance(lag_tbl, pl.DataFrame):
+        lag_df = lag_tbl.to_pandas()
+    elif isinstance(lag_tbl, pd.DataFrame):
+        lag_df = lag_tbl.copy()
+    else:
+        raise TypeError(f"Unsupported lag_tbl type: {type(lag_tbl)}")
+
+    if lag_df is None or len(lag_df) == 0:
         log_line(logger, 'empty lag_tbl', indent=0,
                  log_type="info")
-        # print_log_line(SCRIPT, inspect.currentframe().f_code.co_name, 'empty lag_tbl', level=0, log_type='error')
         return (None, None)
 
-    lib = lag_tbl['LibSize']
-    rho = lag_tbl['rho']
+    lib = lag_df['LibSize']
 
     # thresholds at ends
-    lib_min = pc.min(lib).as_py()
-    lib_max = pc.max(lib).as_py()
+    lib_min = lib.min()
+    lib_max = lib.max()
 
     # min/max libsize bands
-    min_mask = pc.less(lib, lib_min + min_window)
-    max_mask = pc.greater(lib, lib_max - max_window)
+    min_mask = lib < (lib_min + min_window)
+    max_mask = lib > (lib_max - max_window)
 
-    min_tbl = lag_tbl.filter(min_mask)
-    max_tbl = lag_tbl.filter(max_mask)
+    min_tbl = lag_df[min_mask].copy()
+    max_tbl = lag_df[max_mask].copy()
 
-    gb = lag_tbl.group_by(["LibSize"]).aggregate([("rho", "mean")])  # columns: LibSize, rho_mean
-    # sort by descending rho_mean
-    gb_sorted = gb.sort_by([("rho_mean", "descending")])
-    best_libsize = gb_sorted["LibSize"][0].as_py()
+    gb = lag_df.groupby("LibSize", as_index=False)["rho"].mean()
+    gb_sorted = gb.sort_values("rho", ascending=False)
+    best_libsize = gb_sorted["LibSize"].iloc[0]
 
     # window around best libsize
     lo = best_libsize - best_window_halfwidth
     hi = best_libsize + best_window_halfwidth
-    win_mask = pc.and_(
-        pc.greater_equal(lib, lo),
-        pc.less_equal(lib, hi)
-    )
-    best_tbl = lag_tbl.filter(win_mask)
+    win_mask = (lib >= lo) & (lib <= hi)
+    best_tbl = lag_df[win_mask].copy()
     # stats
     stats_tbl = None
 
-    n_min = min_tbl.num_rows
-    n_max = max_tbl.num_rows
-    n_best = best_tbl.num_rows
+    n_min = len(min_tbl)
+    n_max = len(max_tbl)
+    n_best = len(best_tbl)
     sample_size = max(n_min, n_max)
 
     rng = np.random.default_rng(rng_seed)
@@ -178,58 +183,55 @@ def compute_delta_rho_grp(
     idx_max = rng.integers(0, n_max, size=sample_size) if n_max > 0 else np.array([], dtype=np.int64)
     idx_best = rng.integers(0, n_best, size=sample_size) if n_best > 0 else np.array([], dtype=np.int64)
 
-    min_rhos = min_tbl['rho'].take(pa.array(idx_min)) if n_min > 0 else pa.array([], type=pa.float64())
-    min_rhos = pc.max_element_wise(min_rhos, 0) #bind min rho to 0 to avoid negative values dominating the delta rho calculation
-    max_rhos = max_tbl['rho'].take(pa.array(idx_max)) if n_max > 0 else pa.array([], type=pa.float64())
-    # align lengths (should already be sample_size)
-    if len(min_rhos) != sample_size:
-        min_rhos = pc.pad(min_rhos, target_length=sample_size)
-    if len(max_rhos) != sample_size:
-        max_rhos = pc.pad(max_rhos, target_length=sample_size)
+    if n_min > 0:
+        min_rhos = min_tbl['rho'].to_numpy()[idx_min]
+        min_rhos = np.maximum(min_rhos, 0)
+    else:
+        min_rhos = np.full(sample_size, np.nan, dtype=float)
 
-    delta_rho_vec = pc.subtract(max_rhos, min_rhos)
+    if n_max > 0:
+        max_rhos = max_tbl['rho'].to_numpy()[idx_max]
+    else:
+        max_rhos = np.full(sample_size, np.nan, dtype=float)
+
+    delta_rho_vec = max_rhos - min_rhos
 
     # also expose the raw rho values from the "best window"
-    # best_rhos = best_tbl['rho'] if best_tbl.num_rows > 0 else pa.array([], type=pa.float64())
-    best_rhos = best_tbl['rho'].take(pa.array(idx_best)) if n_min > 0 else pa.array([], type=pa.float64())
+    best_rhos = best_tbl['rho'].to_numpy()[idx_best] if n_best > 0 else np.full(sample_size, np.nan, dtype=float)
 
     if stats:
-        best_mean_rho = pc.mean(best_tbl['rho']).as_py() if best_tbl.num_rows > 0 else np.nan
-        min_mean_rho = pc.mean(min_tbl['rho']).as_py() if min_tbl.num_rows > 0 else np.nan
-        max_mean_rho = pc.mean(max_tbl['rho']).as_py() if max_tbl.num_rows > 0 else np.nan
+        best_mean_rho = best_tbl['rho'].mean() if len(best_tbl) > 0 else np.nan
+        min_mean_rho = min_tbl['rho'].mean() if len(min_tbl) > 0 else np.nan
+        max_mean_rho = max_tbl['rho'].mean() if len(max_tbl) > 0 else np.nan
         delta_rho = (max_mean_rho - min_mean_rho) if (
                     np.isfinite(max_mean_rho) and np.isfinite(min_mean_rho)) else np.nan
 
-        cols = {}
-        # group descriptors (length-1 columns)
+        stats_row = {}
         for k, v in gd.items():
-            cols[k] = as_len1_array(get_static(v))
+            stats_row[k] = [get_static(v)]
 
-        cols['maxrho'] = as_len1_array(best_mean_rho)# if np.isfinite(best_mean_rho) else np.nan)
-        cols['minlibsize_rho'] = as_len1_array(min_mean_rho) #if np.isfinite(min_mean_rho) else np.nan)
-        cols['maxlibsize_rho'] = as_len1_array(max_mean_rho)# if np.isfinite(max_mean_rho) else np.nan)
-        cols['delta_rho'] = as_len1_array(delta_rho) #if np.isfinite(delta_rho) else np.nan)
-        cols['annotation'] = as_len1_array(annotation)
+        stats_row['maxrho'] = [best_mean_rho]
+        stats_row['minlibsize_rho'] = [min_mean_rho]
+        stats_row['maxlibsize_rho'] = [max_mean_rho]
+        stats_row['delta_rho'] = [delta_rho]
+        stats_row['annotation'] = [annotation]
 
-        stats_tbl = pa.table(cols)
+        stats_tbl = pl.from_pandas(pd.DataFrame(stats_row)).lazy()
 
     # full vectors with bootstrap-style paired sampling (with replacement)
     full_tbl = None
     if full:
-
         cols_full = {
-            'minlibsize_rho': min_rhos,
-            'maxlibsize_rho': max_rhos,
-            'delta_rho': delta_rho_vec,
-            # For parity with your dict, expose maxrho as the vector from the best window
-            'maxrho': best_rhos,
-            'annotation': as_lenN_array(annotation, len(max_rhos)) #annotations#_repeat_scalar(annotation, sample_size, pa.string()),
+            'minlibsize_rho': min_rhos.tolist(),
+            'maxlibsize_rho': max_rhos.tolist(),
+            'delta_rho': delta_rho_vec.tolist(),
+            'maxrho': best_rhos.tolist(),
+            'annotation': [annotation] * sample_size,
         }
-        # replicate gd for each row
         for k, v in gd.items():
-            cols_full[k] = as_lenN_array(get_static(v), len(max_rhos))
+            cols_full[k] = [get_static(v)] * sample_size
 
-        full_tbl = pa.table(cols_full)
+        full_tbl = pl.from_pandas(pd.DataFrame(cols_full)).lazy()
 
     return stats_tbl, full_tbl
 
@@ -418,10 +420,14 @@ class RunConfig:
         """
         if isinstance(full_ds, pa.Table):
             df = full_ds.to_pandas(types_mapper=pd.ArrowDtype)
-        elif not isinstance(full_ds, pd.DataFrame):
-            raise TypeError("Input must be a pandas DataFrame or a pyarrow Table")
-        else:
+        elif isinstance(full_ds, pl.LazyFrame):
+            df = full_ds.collect().to_pandas()
+        elif isinstance(full_ds, pl.DataFrame):
+            df = full_ds.to_pandas()
+        elif isinstance(full_ds, pd.DataFrame):
             df = full_ds
+        else:
+            raise TypeError("Input must be a pandas DataFrame, pyarrow Table, or polars DataFrame/LazyFrame")
 
         if trait not in df.columns:
             raise ValueError(f"Trait '{trait}' not found in columns")
@@ -429,11 +435,8 @@ class RunConfig:
         grouped = df.groupby(trait)
         results = {}
         cols = df.columns if include_ids else [col for col in df.columns if ('id' not in col) and ('ind' not in col)]
-        for col in self.traits:
-            if col in df.columns:
-                if col == trait:
-                    continue
-                # Uniqueness fraction within each group
+        for col in cols:
+            if col in self.traits and col != trait:
                 frac_unique = grouped[col].nunique(dropna=False) / grouped.size()
                 results[col] = frac_unique.mean()
 
@@ -1018,7 +1021,8 @@ class Output:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
         if type(full) is pd.DataFrame:
-            full = pa.Table.from_pandas(full, preserve_index=False)
+            # full = pa.Table.from_pandas(full, preserve_index=False)
+            full = pl.from_pandas(full).lazy()
         self._full = full
         self.path = path
         self.type = outtype
@@ -1078,8 +1082,14 @@ class Output:
                 stored_format = getattr(self, "format", None)
                 format = stored_format if stored_format is not None else 'parquet'
             if format == 'parquet':
+                if self.path is None:
+                    raise ValueError(
+                        f"Output.get_table() cannot load parquet for outtype={self.type!r}: "
+                        "both _full and path are None."
+                    )
                 self._full = pl.scan_parquet(str(self.path))
                 # self._full = ds.dataset(str(self.path), format="parquet").to_table()
+                print('loaded from parquet, type:', type(self._full), file=sys.stdout, flush=True)
             elif format == "sqlite":
                 if self.path is None:
                     raise ValueError("Output.path is required for format='sqlite'.")
@@ -1093,7 +1103,9 @@ class Output:
                     else:
                         df = pd.read_sql_query(self.query, con, params=self.params)
 
-                self._full = pa.Table.from_pandas(df, preserve_index=False)
+                self._full = pl.from_pandas(df).lazy()
+                # self._full = pa.Table.from_pandas(df, preserve_index=False)
+                print('loaded from sqlite, type:', type(self._full), file=sys.stdout, flush=True)
 
 
     def clear_table(self):
@@ -1118,7 +1130,16 @@ class Output:
         if '__' not in str(self.path) and len(tag) >0:
             name = self.path.stem
             self.path = str(self.path).replace('name', f'{tag}__{name}')
-        pq.write_table(self._full, self.path)
+        if isinstance(self._full, pa.Table):
+            pq.write_table(self._full, self.path)
+        elif isinstance(self._full, pl.LazyFrame):
+            self._full.collect().write_parquet(self.path)
+        elif isinstance(self._full, pl.DataFrame):
+            self._full.write_parquet(self.path)
+        elif isinstance(self._full, pd.DataFrame):
+            pl.from_pandas(self._full).write_parquet(self.path)
+        else:
+            raise TypeError(f"Unsupported table type for write_table: {type(self._full)}")
 
 
 class OutputCollection:
@@ -1202,25 +1223,27 @@ class OutputCollection:
 
 
     # def __init__(self, in_table):
-        if isinstance(in_table, list) is False:
-            if type(in_table) is pd.DataFrame:
+        def _to_lazy_frame(obj):
+            if obj is None:
+                return None
+            if isinstance(obj, pl.LazyFrame):
+                return obj
+            if isinstance(obj, pl.DataFrame):
+                return obj.lazy()
+            if isinstance(obj, pa.Table):
+                return pl.from_arrow(obj).lazy()
+            if isinstance(obj, pd.DataFrame):
+                df = obj.copy()
                 for col in ['E', 'tau', 'Tp', 'lag', 'knn', 'surr_var', 'surr_num', 'x_id', 'x_age_model_ind', 'x_var', 'y_id', 'y_age_model_ind', 'y_var', 'LibSize', 'ind_i', 'relation', 'forcing', 'responding']:
-                    if col not in in_table.columns:
-                        in_table[col] = self.grp_config.get_trait_value(col)
-                in_table = pa.Table.from_pandas(in_table, preserve_index=False)
+                    if col not in df.columns:
+                        df[col] = self.grp_config.get_trait_value(col)
+                return pl.from_pandas(df).lazy()
+            return None
+
+        if isinstance(in_table, list) is False:
             in_table = [in_table]
 
-        if isinstance(in_table, list) and (len(in_table)>0) and isinstance(in_table[0], pa.Table):
-            tables = [tbl for tbl in in_table if (tbl is not None) and (isinstance(tbl, pa.Table) is True)]
-            if len(tables) >0:
-                in_table = pa.concat_tables(tables)
-                self.table = Output(in_table, outtype=outtype, tmp_dir=self.tmp_path)
-        elif isinstance(in_table, list) and (len(in_table)>0) and isinstance(in_table[0], Output):
-            tables = [tbl.table for tbl in in_table if (tbl.table is not None) and isinstance(tbl.table, pa.Table) is True]
-            if len(tables) >0:
-                in_table = pa.concat_tables(tables)
-                self.table = Output(in_table, outtype=outtype, tmp_dir=self.tmp_path)
-        elif isinstance(in_table, list) and (len(in_table)>0) and isinstance(in_table[0], OutputCollection):
+        if isinstance(in_table, list) and len(in_table) > 0 and isinstance(in_table[0], OutputCollection):
             outputcollections = [outputcoll for outputcoll in in_table if (outputcoll is not None) and (isinstance(outputcoll, OutputCollection) is True)]
             for attr in ['table', 'libsize_aggregated', 'active_stats', 'active_full', 'delta_rho_stats', 'delta_rho_full']:
                 try:
@@ -1229,6 +1252,25 @@ class OutputCollection:
                     log_line(self.log, f'Error combining OutputCollections for attribute {attr}: {e}',
                              indent=0, log_type="error")
                     # print(f'Error combining OutputCollections for attribute {attr}: {e}')
+        elif isinstance(in_table, list):
+            lazy_tables = []
+            for tbl in in_table:
+                if isinstance(tbl, Output):
+                    if tbl._full is None and tbl.path is None:
+                        lazy_tbl = None
+                    else:
+                        lazy_tbl = _to_lazy_frame(tbl.table)
+                else:
+                    lazy_tbl = _to_lazy_frame(tbl)
+                if lazy_tbl is not None:
+                    lazy_tables.append(lazy_tbl)
+
+            if len(lazy_tables) > 0:
+                if len(lazy_tables) == 1:
+                    combined = lazy_tables[0]
+                else:
+                    combined = pl.concat(lazy_tables, how='diagonal_relaxed')
+                self.table = Output(combined, outtype=outtype, tmp_dir=self.tmp_path)
 
         self.relationships = Relationship(self.grp_config.var_x, self.grp_config.var_y) if self.grp_config is not None else None
 
@@ -1289,7 +1331,7 @@ class OutputCollection:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self._ensure_compat_attributes()
 
-    def set_relationships(self):
+    def set_relationships(self, output_relationship_convention=None):
         self.relationships = Relationship(self.grp_config.var_x, self.grp_config.var_y) if self.grp_config is not None else None
         self.r1 = RelationshipSide('r1', relationship=self.relationships) if self.relationships is not None else None
         self.r2 = RelationshipSide('r2', relationship=self.relationships) if self.relationships is not None else None
@@ -1307,30 +1349,42 @@ class OutputCollection:
         tables = [tbl for tbl in tables if tbl is not None]
         if len(tables) == 0:
             return self
-        col_types = {col: tables[0]._full.schema.field(col).type for col in tables[0]._full.schema.names}
+
+        def _to_lazy_frame(obj):
+            if obj is None:
+                return None
+            if isinstance(obj, pl.LazyFrame):
+                return obj
+            if isinstance(obj, pl.DataFrame):
+                return obj.lazy()
+            if isinstance(obj, pa.Table):
+                return pl.from_arrow(obj).lazy()
+            if isinstance(obj, pd.DataFrame):
+                return pl.from_pandas(obj).lazy()
+            return None
 
         tables_full = []
         outtypes = []
         for tbl in tables:
-            if (isinstance(tbl, Output) is True) and (tbl.table is not None) and (isinstance(tbl.table, pa.Table) is True):
-                for col in tbl._full.schema.names:
-                    if tbl._full.schema.field(col).type != col_types[col]:
-                        tbl._full = tbl._full.set_column(
-                            tbl._full.schema.get_field_index(col), col, tbl._full[col].cast(col_types[col]))
-                tables_full.append(tbl.table)
-                outtypes.append(tbl.type)
-                tbl.clear_table()
-            elif isinstance(tbl, pa.Table) is True:
-                for col in tbl.schema.names:
-                    if tbl.schema.field(col).type != col_types[col]:
-                        tbl = tbl.set_column(
-                            tbl.schema.get_field_index(col), col, tbl[col].cast(col_types[col]))
-                tables_full.append(tbl)
+            if isinstance(tbl, Output):
+                if tbl._full is None and tbl.path is None:
+                    lazy_tbl = None
+                else:
+                    lazy_tbl = _to_lazy_frame(tbl.table)
+                if lazy_tbl is not None:
+                    tables_full.append(lazy_tbl)
+                    outtypes.append(tbl.type)
+                    tbl.clear_table()
+            else:
+                lazy_tbl = _to_lazy_frame(tbl)
+                if lazy_tbl is not None:
+                    tables_full.append(lazy_tbl)
 
         outtypes = list(set(outtypes))
         outtype = outtypes[0] if len(outtypes) == 1 else attr
-        if len(tables_full)>0:
-            setattr(self, attr, Output(pa.concat_tables(tables_full), outtype=outtype, tmp_dir=self.tmp_path))
+        if len(tables_full) > 0:
+            combined = tables_full[0] if len(tables_full) == 1 else pl.concat(tables_full, how='diagonal_relaxed')
+            setattr(self, attr, Output(combined, outtype=outtype, tmp_dir=self.tmp_path))
             print('combined', attr)
 
         return self
@@ -1379,28 +1433,45 @@ class OutputCollection:
         raise ValueError(f"Unsupported relationship_id '{relationship_id}'. Use 'r1' or 'r2'.")
 
 
+    # def _draw_metric_df(self, source, table_attr='real'):
+    #
+    #     tdigest_opts = pc.TDigestOptions(q=[.25, .75])
+    #
+    #     gb = source.group_by(["relation", 'lag', 'surr_var', 'surr_num']).aggregate(
+    #         [("maxlibsize_rho", "mean"),
+    #          ("maxlibsize_rho", "stddev"),
+    #          ("maxlibsize_rho", 'approximate_median'),
+    #          ('maxlibsize_rho', 'tdigest', tdigest_opts),
+    #          ("delta_rho", "mean"), ("delta_rho", "stddev"),
+    #          ('delta_rho', 'approximate_median'),
+    #          ('delta_rho', 'tdigest', tdigest_opts),
+    #          ])
+    #
+    #     gb_df = gb.to_pandas()
+    #     for var in ['maxlibsize_rho', 'delta_rho']:
+    #         for ik, q in enumerate([.25, .75]):
+    #             number_label = str(q).replace('.','p').lstrip('0')
+    #             gb_df[f'{var}_{number_label}'] = gb_df[f'{var}_tdigest'].apply(lambda x: x[ik] if x is not None else np.nan)
+    #     return gb_df
+
     def _draw_metric_df(self, source, table_attr='real'):
+        gb = source.group_by(["relation", "lag", "surr_var", "surr_num"]).agg(
+            pl.col("maxlibsize_rho").mean().alias("maxlibsize_rho_mean"),
+            pl.col("maxlibsize_rho").std().alias("maxlibsize_rho_stddev"),
+            pl.col("maxlibsize_rho").median().alias("maxlibsize_rho_approximate_median"),
+            pl.col("maxlibsize_rho").quantile(0.25).alias("maxlibsize_rho_p25"),
+            pl.col("maxlibsize_rho").quantile(0.75).alias("maxlibsize_rho_p75"),
 
-        tdigest_opts = pc.TDigestOptions(q=[.25, .75])
+            pl.col("delta_rho").mean().alias("delta_rho_mean"),
+            pl.col("delta_rho").std().alias("delta_rho_stddev"),
+            pl.col("delta_rho").median().alias("delta_rho_approximate_median"),
+            pl.col("delta_rho").quantile(0.25).alias("delta_rho_p25"),
+            pl.col("delta_rho").quantile(0.75).alias("delta_rho_p75"),
+        )
 
-        gb = source.group_by(["relation", 'lag', 'surr_var', 'surr_num']).aggregate(
-            [("maxlibsize_rho", "mean"),
-             ("maxlibsize_rho", "stddev"),
-             ("maxlibsize_rho", 'approximate_median'),
-             ('maxlibsize_rho', 'tdigest', tdigest_opts),
-             ("delta_rho", "mean"), ("delta_rho", "stddev"),
-             ('delta_rho', 'approximate_median'),
-             ('delta_rho', 'tdigest', tdigest_opts),
-             ])
-
-        gb_df = gb.to_pandas()
-        for var in ['maxlibsize_rho', 'delta_rho']:
-            for ik, q in enumerate([.25, .75]):
-                number_label = str(q).replace('.','p').lstrip('0')
-                gb_df[f'{var}_{number_label}'] = gb_df[f'{var}_tdigest'].apply(lambda x: x[ik] if x is not None else np.nan)
-        return gb_df
-
-
+        if isinstance(gb, pl.LazyFrame):
+            return gb.collect().to_pandas()
+        return gb.to_pandas()
 
     # @TODO: this should reference a metric utility
     def find_candidate_peaks(self, df, y_col='maxlibsize_rho', x_col='lag', smoothing_window=1):
@@ -1547,10 +1618,13 @@ class OutputCollection:
         # print(f'calculating candidate peaks for relationship {relationship} with surrogate variable {surr_var} and metric {y_col} (smoothing window={smoothing_window})')
         self.delta_rho_full.get_table()
         gb_real_df = self._draw_metric_df(self.delta_rho_full.real, 'real')
+        print('self.calclags_peaks: real performance data frame for peak finding:')
+        print(gb_real_df.head())
         self.delta_rho_full.clear_table()
         real_r_df = gb_real_df[
             (gb_real_df['relation'] == relationship) & (gb_real_df['surr_var'] == surr_var)].reset_index(drop=True)
-
+        print(f'self.calc_lags_peaks: filtered real performance data frame for relationship {relationship} and surrogate variable {surr_var}:')
+        print(real_r_df.head())
         all_candidates = self.find_candidate_peaks(real_r_df, y_col=y_col, smoothing_window=smoothing_window)
 
         self.lag_choices = all_candidates
@@ -1575,9 +1649,18 @@ class OutputCollection:
         #
         # except Exception as e:
         self.delta_rho_stats.get_table()
-        gb_surr = self.delta_rho_stats.surrogate.group_by(["relation", 'lag', 'surr_var', 'surr_num']).aggregate([("maxlibsize_rho", "mean")])
-        gb_surr_df = gb_surr.to_pandas()
+        gb_surr = self.delta_rho_stats.surrogate.group_by(
+            ["relation", "lag", "surr_var", "surr_num"]
+        ).agg(
+            pl.col("maxlibsize_rho").mean().alias("maxlibsize_rho_mean")
+        )
+        gb_surr_df = gb_surr.collect().to_pandas() if isinstance(gb_surr, pl.LazyFrame) else gb_surr.to_pandas()
         self.delta_rho_stats.clear_table()
+
+        # self.delta_rho_stats.get_table()
+        # gb_surr = self.delta_rho_stats.surrogate.group_by(["relation", 'lag', 'surr_var', 'surr_num']).aggregate([("maxlibsize_rho", "mean")])
+        # gb_surr_df = gb_surr.to_pandas()
+        # self.delta_rho_stats.clear_table()
         # print('surrogate performance data frame for testing:')
         # print(gb_surr_df.head())
 
@@ -1609,10 +1692,11 @@ class OutputCollection:
 
         relationship = self._resolve_relationship_name(relationship_id=relationship_id)
         lag_filter = self._resolve_metrics_lag_filter(lag=lag)
+        print(f'setting target lag for relationship {relationship} using metric {y_col} with lag filter {lag} and smoothing window {smoothing_window}')
         # print(f'setting target lag for relationship {relationship} using metric {y_col} with lag filter {lag} and smoothing window {smoothing_window}')
 
         if hasattr(self, 'lag_choices') is False:
-            print('lag_choices attribute not found, initializing to None')
+            # print('lag_choices attribute not found, initializing to None')
             self.lag_choices = None
 
         if self.lag_choices is None:
@@ -1620,6 +1704,8 @@ class OutputCollection:
             self.calc_lags_peaks(relationship_id=relationship_id, y_col=y_col, smoothing_window=smoothing_window)
 
         viable_lags  = self.find_viable_peaks(lag_filter=None, y_col=y_col, smoothing_window=smoothing_window)
+        print('viable lags after candidate peak finding:')
+        print(viable_lags.head())
         tested_viable_lags = self.test_lags(lag_df = viable_lags, relationship=relationship)
 
         decision_metric = f'{y_col}_mean'
@@ -1629,12 +1715,15 @@ class OutputCollection:
         tested_viable_lags['abs_lag'] = tested_viable_lags['lag'].apply(lambda x: abs(x) if pd.notna(x) else np.inf)
 
         unrestricted_lags = tested_viable_lags[tested_viable_lags['category'] == 'unrestricted'].copy()
+        print('unrestricted lags after surrogate testing:')
+        print(unrestricted_lags.head())
         unrestricted_lags_filtered = unrestricted_lags.copy().drop(columns=['surr_var']).drop_duplicates(subset=['lag']).sort_values(by=[ 'abs_lag', 'lag',decision_metric ],
                                                           ascending=[True, False, False])
 
         sorted_unrestricted_lags = pd.concat([unrestricted_lags_filtered[unrestricted_lags_filtered['lag'] >= 0].copy(),
                                        unrestricted_lags_filtered[unrestricted_lags_filtered['lag'] < 0].copy()])
-
+        print('sorted unrestricted lags:')
+        print(sorted_unrestricted_lags.head())
         if len(sorted_unrestricted_lags[sorted_unrestricted_lags['peak_end']>=0])>0:
             target_lag = sorted_unrestricted_lags[sorted_unrestricted_lags['peak_end']>=0].iloc[0]['lag']
         else:
@@ -1696,91 +1785,106 @@ class OutputCollection:
 
     def calc_delta_rho(self, *, stats_out=True, full_out=False, **kwargs):
         """
-        Iterates unique combinations of calc_grp_cols and applies compute_delta_rho_arrow
-        to each group's sub-table. Returns concatenated Arrow tables.
+        Iterates unique combinations of calc_grp_cols and applies compute_delta_rho_grp
+        to each group's sub-table. Returns concatenated Polars-backed outputs.
         """
-        # Get unique groups as a small table
         full = self.table.full
+        if isinstance(full, pa.Table):
+            full = pl.from_arrow(full)
+        elif isinstance(full, pl.LazyFrame):
+            full = full.collect()
+        elif isinstance(full, pd.DataFrame):
+            full = pl.from_pandas(full)
+        elif not isinstance(full, pl.DataFrame):
+            raise TypeError(f"Unsupported full table type: {type(full)}")
 
         group_traits_below = self.grp_config.trait_hierarchy(full, 'LibSize', level="below", threshold=0.8, include_ids=True)
-        # print('group_traits_below', group_traits_below)
+        calc_grp_cols = [col for col in full.columns if col in self.grp_config.traits and (
+                         col not in group_traits_below)]
 
-        calc_grp_cols = [col for col in full.schema.names if col in self.grp_config.traits and (
-                         col not in group_traits_below)]  # if self.grp_config.traits if (col in self.full.schema.names) and (col not in "output_path")]
-
-        if 'relation' in full.schema.names:
+        if 'relation' in full.columns:
             if 'relation' not in calc_grp_cols:
                 calc_grp_cols.append('relation')
 
-        unique_tbl = full.select(calc_grp_cols).combine_chunks().group_by(calc_grp_cols).aggregate([(calc_grp_cols[0], "count")]).select(calc_grp_cols)
+        unique_tbl = full.select(calc_grp_cols).unique(maintain_order=True)
 
         stats_tables = []
         full_tables = []
-        for row_idx in range(unique_tbl.num_rows):
-            # try:
-            gd = {}
-            for col in calc_grp_cols:
-                val = unique_tbl[col][row_idx]
-                vals = correct_iterable(val.as_py())
-                gd[col] = vals
-            filter_fail = False
-            try:
-                filters = [pc.field(col).isin(correct_iterable(unique_tbl[col][row_idx].as_py())) for col in calc_grp_cols]
-                combined_filter = reduce(operator.and_, filters)
-                grp_tbl = full.filter(combined_filter)
-                filter_fail = False
-            except Exception as e:
-                print(gd, e)
-                filter_fail = True
-
-            if filter_fail is True:
-                continue
+        for row in unique_tbl.iter_rows(named=True):
+            gd = {col: correct_iterable(row[col]) for col in calc_grp_cols}
+            filters = [pl.col(col).is_in(correct_iterable(row[col])) for col in calc_grp_cols]
+            grp_tbl = full.filter(reduce(operator.and_, filters))
 
             s_tbl, f_tbl = compute_delta_rho_grp(
                 grp_tbl, gd, stats=stats_out, full=full_out, **kwargs
             )
-            if stats_out is True and s_tbl is not None and s_tbl.num_rows > 0:
+            if stats_out is True and s_tbl is not None:
                 stats_tables.append(s_tbl)
-            if full_out is True and f_tbl is not None and f_tbl.num_rows > 0:
+            if full_out is True and f_tbl is not None:
                 full_tables.append(f_tbl)
 
         if stats_out is True:
-            out_stats = pa.concat_tables(stats_tables) if stats_tables else None
+            out_stats = pl.concat(stats_tables, how='diagonal_relaxed') if stats_tables else None
             self.delta_rho_stats = Output(out_stats, outtype='delta_rho_stats', tmp_dir=self.tmp_path)#, use_case='delta_rho_stats')
         if full_out is True:
-            out_full = pa.concat_tables(full_tables) if full_tables else None
+            out_full = pl.concat(full_tables, how='diagonal_relaxed') if full_tables else None
             self.delta_rho_full = Output(out_full, outtype='delta_rho_full', tmp_dir=self.tmp_path)#, use_case='delta_rho_full')
 
         return self
 
     def aggregate_libsize(self, query_config=None): #process_group_table
         knn = get_static(query_config.knn if query_config is not None else self.grp_config.knn)
-        full = self.table.full
-        if isinstance(self.table.full, pd.DataFrame):
-            full = pa.Table.from_pandas(self.table.full)
+        if knn is None:
+            return self
+        try:
+            knn = int(knn)
+        except (TypeError, ValueError):
+            knn = int(float(knn))
 
-        if "LibSize" in full.schema.names:
-            mask = pc.greater(full["LibSize"], knn+1)
-            group_table = full.filter(mask)
-        if group_table.num_rows == 0:
+        full = self.table.full
+        if isinstance(full, pa.Table):
+            full = pl.from_arrow(full)
+        elif isinstance(full, pl.LazyFrame):
+            full = full.collect()
+        elif isinstance(full, pd.DataFrame):
+            full = pl.from_pandas(full)
+        elif not isinstance(full, pl.DataFrame):
+            raise TypeError(f"Unsupported full table type: {type(full)}")
+
+        if "LibSize" not in full.columns:
+            return self
+
+        full = full.with_columns(pl.col("LibSize").cast(pl.Float64, strict=False))
+        group_table = full.filter(pl.col("LibSize") > (knn + 1))
+        if group_table.height == 0:
             return self
 
         calc_grp_cols = ['E', 'tau', 'Tp', 'lag', 'knn', 'surr_var', 'surr_num', 'x_id', 'x_age_model_ind', 'x_var', 'y_id', 'y_age_model_ind', 'y_var', 'LibSize', 'ind_i', 'relation', 'forcing', 'responding']
 
-        if "LibSize" in full.schema.names:
+        if "LibSize" in full.columns:
             if "LibSize" not in calc_grp_cols:
                 calc_grp_cols.append("LibSize")
-        if 'relation' in full.schema.names:
+        if 'relation' in full.columns:
             if 'relation' not in calc_grp_cols:
                 calc_grp_cols.append('relation')
 
-        aggregated_cols = [col for col in full.schema.names if (col not in calc_grp_cols) and ('id' not in col) and ('ind' not in col) and (full[col].type in [pa.float32(), pa.float64(), pa.int32(), pa.int64()])]
-        # print('aggregated cols', aggregated_cols)
+        aggregated_cols = [
+            col for col, dtype in full.schema.items()
+            if (col not in calc_grp_cols)
+            and ('id' not in col)
+            and ('ind' not in col)
+            and dtype.is_numeric()
+        ]
         log_line(self.log, ['aggregated cols', aggregated_cols],
                  indent=0, log_type="debug")
-        grouped_aggregated_table = pa.TableGroupBy(full, calc_grp_cols).aggregate([(col, "mean") for col in aggregated_cols])
-        new_names = [col.replace('_mean', '') for col in grouped_aggregated_table.schema.names]
-        grouped_aggregated_table = grouped_aggregated_table.rename_columns(new_names)
+
+        if len(aggregated_cols) == 0:
+            grouped_aggregated_table = group_table.select(calc_grp_cols).unique(maintain_order=True)
+        else:
+            grouped_aggregated_table = group_table.group_by(calc_grp_cols).agg(
+                [pl.col(col).mean().alias(col) for col in aggregated_cols]
+            )
+
         self.libsize_aggregated = Output(grouped_aggregated_table, outtype='libsize_aggregated', tmp_dir=self.tmp_path)#, use_case='libsize_aggregated')
         return self
 
