@@ -6,6 +6,7 @@ import joblib
 import logging
 import sys
 import types
+import pathlib
 logger = logging.getLogger(__name__)
 
 try:
