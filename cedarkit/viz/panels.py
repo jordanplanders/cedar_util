@@ -133,7 +133,7 @@ class BasePlot:
 
         raise TypeError(f"Unsupported output type: {type(output)}")
 
-    def pull_df(self, outputgrp, output_type, output_scope, columns=None, relation_cats=None):
+    def pull_df(self, outputgrp, output_type, output_scope, columns=None, relation_cats=None, relation_convention="pres"):
         output_obj = None
         if output_type == 'delta_rho_stats':
             outputgrp.delta_rho_stats.get_table()
@@ -194,13 +194,32 @@ class BasePlot:
             for relationship_id in relation_cats:
                 relationships = None
                 if relationship_id == 'r1':
-                    relationships = [outputgrp.relationships.r1, outputgrp.relationships.surr_r1x, outputgrp.relationships.surr_r1y]
+                    relationships = [
+                        outputgrp.relationships.r1,
+                        outputgrp.relationships.r1_calc,
+                        outputgrp.relationships.surr_r1x,
+                        outputgrp.relationships.surr_r1x_calc,
+                        outputgrp.relationships.surr_r1y,
+                        outputgrp.relationships.surr_r1y_calc,
+                    ]
                 elif relationship_id == 'r2':
-                    relationships = [outputgrp.relationships.r2, outputgrp.relationships.surr_r2x, outputgrp.relationships.surr_r2y]
+                    relationships = [
+                        outputgrp.relationships.r2,
+                        outputgrp.relationships.r2_calc,
+                        outputgrp.relationships.surr_r2x,
+                        outputgrp.relationships.surr_r2x_calc,
+                        outputgrp.relationships.surr_r2y,
+                        outputgrp.relationships.surr_r2y_calc,
+                    ]
                 else:
                     relationships = [relationship_id]
+                    if getattr(outputgrp, "relationships", None) is not None:
+                        relationships.append(outputgrp.relationships.to_calc_mapping.get(relationship_id, relationship_id))
+                        relationships.append(outputgrp.relationships.to_pres_mapping.get(relationship_id, relationship_id))
 
-                mapped_relation_cats += relationships
+                mapped_relation_cats += [rel for rel in relationships if rel is not None]
+
+            mapped_relation_cats = list(dict.fromkeys(mapped_relation_cats))
 
             if isinstance(output, pa.Table):
                 mask = pc.is_in(output["relation"], value_set=pa.array(mapped_relation_cats))
@@ -210,6 +229,18 @@ class BasePlot:
 
         df = self._pull_df(output, columns=columns)
         outputgrp.clear_tables()
+
+        if df is not None and "relation" in df.columns and getattr(outputgrp, "relationships", None) is not None:
+            if relation_convention == "pres":
+                relation_mapping = outputgrp.relationships.to_pres_mapping
+            elif relation_convention == "calc":
+                relation_mapping = outputgrp.relationships.to_calc_mapping
+            else:
+                raise ValueError(
+                    f"Unsupported relation_convention '{relation_convention}'. Use 'pres' or 'calc'."
+                )
+            # Candidate to modularize later if this relation-column normalization pattern repeats elsewhere.
+            df["relation"] = df["relation"].map(lambda value: relation_mapping.get(value, value))
 
         return df
 

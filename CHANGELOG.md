@@ -12,8 +12,11 @@
 - `cedarkit/core/data_objects.py`
   Added a calc-facing relationship resolver and switched stored-output relation comparisons in the lag/metric selection path to use calc-facing relationship strings instead of presentation-facing ones. This change is limited to output-table filtering semantics and does not alter presentation-oriented summary/reporting accessors.
 
+- `cedarkit/viz/panels.py`
+  Updated `pull_df()` so relation-family filtering can accept both calc-facing and presentation-facing spellings for `r1` and `r2`, then normalize the returned dataframe relation column to the requested convention. The default visualization-facing return convention remains presentation-oriented, with an explicit calc option available for callers that need it.
+
 - Verification note
-  This parcel was verified with compile checks and a focused resolver sanity check. Full end-to-end output filtering and visualization validation remain pending in later Cedarkit Part 1A parcels.
+  The relationship and data-object parcels were verified with compile checks and focused resolver sanity checks. The `panels.py` parcel compiles cleanly, but runtime `pull_df()` verification is still pending here because this environment does not currently have `pyarrow` available.
 
 - Remaining Part 1A work
-  `pull_df()` calc/pres transition handling and palette/parser alignment remain pending for later Cedarkit Part 1A parcels.
+  Palette/parser alignment remains pending for a later Cedarkit Part 1A parcel.
