@@ -7,6 +7,7 @@ from matplotlib.markers import MarkerStyle
 from matplotlib.patches import Polygon, Rectangle
 import logging
 import pyarrow as pa
+import pyarrow.compute as pc
 import polars as pl
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,7 @@ class BasePlot:
 
     def _pull_df(self, output, columns=None):
         if isinstance(output, pa.Table):
+            print('output is a pa.Table')
             if columns is not None:
                 output = output.select(columns)
             return output.to_pandas()
@@ -132,19 +134,23 @@ class BasePlot:
         raise TypeError(f"Unsupported output type: {type(output)}")
 
     def pull_df(self, outputgrp, output_type, output_scope, columns=None, relation_cats=None):
-
-        if output_type is 'delta_rho_stats':# and outputgrp.delta_rho_stats is None:
+        output_obj = None
+        if output_type == 'delta_rho_stats':
             outputgrp.delta_rho_stats.get_table()
             output_obj = outputgrp.delta_rho_stats
-        elif output_type is 'delta_rho_full':# and outputgrp.delta_rho_full is None:
+        elif output_type == 'delta_rho_full':
             outputgrp.delta_rho_full.get_table()
             output_obj = outputgrp.delta_rho_full
-        elif output_type is 'libsize_aggregated':# and outputgrp.libsize_aggregated is None:
+        elif output_type == 'libsize_aggregated':
             outputgrp.libsize_aggregated.get_table()
             output_obj = outputgrp.libsize_aggregated
+        else:
+            raise ValueError(
+                f"Unsupported output_type '{output_type}'. "
+                "Use 'delta_rho_stats', 'delta_rho_full', or 'libsize_aggregated'."
+            )
 
         if output_obj is None:
-            print(f"Output object for type '{output_type}' is None, cannot pull table.")
             return None
 
         if columns is None:
@@ -152,9 +158,11 @@ class BasePlot:
                 columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num']
             elif output_type == 'libsize_aggregated':
                 columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau']
-        print(f"Pulling DataFrame for output_type '{output_type}' with columns {columns}.")
 
+        print(f"Pulling columns {columns} from output type '{output_type}' with scope '{output_scope}'", type(output_obj._full))
         if isinstance(output_obj._full, pa.Table):
+            print(len(output_obj._full) if output_obj._full is not None else 'output is None')
+
             schema_names = output_obj._full.schema.names
         else:
             schema_names = output_obj._full.collect_schema().names()
@@ -179,12 +187,10 @@ class BasePlot:
             raise ValueError(f"Unsupported output_scope '{output_scope}'. Use 'real', 'surrogate', or 'full'.")
 
         if output is None:
-            print(f"Output for scope '{output_scope}' is None, cannot pull DataFrame.")
             return None
 
         mapped_relation_cats = []
         if relation_cats is not None:
-
             for relationship_id in relation_cats:
                 relationships = None
                 if relationship_id == 'r1':
@@ -194,12 +200,11 @@ class BasePlot:
                 else:
                     relationships = [relationship_id]
 
-                mapped_relation_cats +=relationships
+                mapped_relation_cats += relationships
 
             if isinstance(output, pa.Table):
                 mask = pc.is_in(output["relation"], value_set=pa.array(mapped_relation_cats))
                 output = output.filter(mask)
-
             else:
                 output = output.filter(pl.col("relation").is_in(mapped_relation_cats))
 
@@ -775,8 +780,16 @@ class LagPlot(BasePlot):
         self.highlight_points(df, hue='relation', edgecolor=self.bottom_val_color, legend=False)
 
     def get_surrogate_nums(self, dset):
-        gb = dset.group_by(["surr_var"]).aggregate([("surr_num", "count")])  # columns: LibSize, rho_mean
-        df = gb.to_pandas()
+        if isinstance(dset, pa.Table):
+            gb = dset.group_by(["surr_var"]).aggregate([("surr_num", "count")])
+            df = gb.to_pandas()
+        elif isinstance(dset, pl.LazyFrame):
+            df = dset.group_by("surr_var").agg(pl.col("surr_num").count().alias("surr_num_count")).collect().to_pandas()
+        elif isinstance(dset, pl.DataFrame):
+            df = dset.group_by("surr_var").agg(pl.col("surr_num").count().alias("surr_num_count")).to_pandas()
+        else:
+            raise TypeError(f"Unsupported dataset type: {type(dset)}")
+
         for _, row in df.iterrows():
             self.annotations.append(f"{row['surr_var']}: n={row['surr_num_count']}")
         # if 'surr_num' in dset.schema.names:
@@ -786,13 +799,15 @@ class LagPlot(BasePlot):
 
     def make_classic_lag_plot(self, outputgrp, stats_only=True, scatter=True, boxplot=False, surr_lines=False, relation_scope=None):
 
-        if outputgrp.delta_rho_stats is None:
-            outputgrp.calc_delta_rho(stats_out=True)
+        # if outputgrp.delta_rho_stats is None:
+        #     outputgrp.calc_delta_rho(stats_out=True)
         outputgrp.delta_rho_stats.get_table()
         self.palette = check_palette_syntax(self.palette, outputgrp.delta_rho_stats.full)
 
         if stats_only is False and outputgrp.delta_rho_full is None:
-            outputgrp.calc_delta_rho(stats_out=False, full_out=True)
+            # outputgrp.calc_delta_rho(stats_out=False, full_out=True)
+            outputgrp.delta_rho_full.get_table()
+
             self.palette = check_palette_syntax(self.palette, outputgrp.delta_rho_full.full)
 
         elif stats_only is False:
