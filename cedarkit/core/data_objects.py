@@ -1432,6 +1432,15 @@ class OutputCollection:
             return self.relationships.r2
         raise ValueError(f"Unsupported relationship_id '{relationship_id}'. Use 'r1' or 'r2'.")
 
+    def _resolve_relationship_name_calc(self, relationship_id='r1'):
+        if self.relationships is None:
+            self.set_relationships()
+        if relationship_id == 'r1':
+            return self.relationships.r1_calc
+        if relationship_id == 'r2':
+            return self.relationships.r2_calc
+        raise ValueError(f"Unsupported relationship_id '{relationship_id}'. Use 'r1' or 'r2'.")
+
 
     # def _draw_metric_df(self, source, table_attr='real'):
     #
@@ -1609,12 +1618,7 @@ class OutputCollection:
 
 
     def calc_lags_peaks(self, relationship_id='r1', surr_var='neither', y_col='maxlibsize_rho', smoothing_window=1):
-        if relationship_id == 'r1':
-            relationship = self.relationships.r1
-        elif relationship_id == 'r2':
-            relationship = self.relationships.r2
-
-        # relationship = self._resolve_relationship_name(relationship_id=relationship_id)
+        relationship = self._resolve_relationship_name_calc(relationship_id=relationship_id)
         # print(f'calculating candidate peaks for relationship {relationship} with surrogate variable {surr_var} and metric {y_col} (smoothing window={smoothing_window})')
         self.delta_rho_full.get_table()
         gb_real_df = self._draw_metric_df(self.delta_rho_full.real, 'real')
@@ -1690,7 +1694,7 @@ class OutputCollection:
 
     def set_target_lag(self, relationship_id = 'r1', y_col='maxlibsize_rho', smoothing_window=1, lag=None):
 
-        relationship = self._resolve_relationship_name(relationship_id=relationship_id)
+        relationship = self._resolve_relationship_name_calc(relationship_id=relationship_id)
         lag_filter = self._resolve_metrics_lag_filter(lag=lag)
         print(f'setting target lag for relationship {relationship} using metric {y_col} with lag filter {lag} and smoothing window {smoothing_window}')
         # print(f'setting target lag for relationship {relationship} using metric {y_col} with lag filter {lag} and smoothing window {smoothing_window}')
@@ -1737,7 +1741,7 @@ class OutputCollection:
 
     def _calc_metrics(self, relationship_id='r1', lag=None, smoothing_window=1, y_col='maxlibsize_rho'):
 
-        relationship = self._resolve_relationship_name(relationship_id=relationship_id)
+        relationship = self._resolve_relationship_name_calc(relationship_id=relationship_id)
 
         if hasattr(self, "target_lag") is False:
             self.target_lag = None
