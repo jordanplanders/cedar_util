@@ -15,8 +15,11 @@
 - `cedarkit/viz/panels.py`
   Updated `pull_df()` so relation-family filtering can accept both calc-facing and presentation-facing spellings for `r1` and `r2`, then normalize the returned dataframe relation column to the requested convention. The default visualization-facing return convention remains presentation-oriented, with an explicit calc option available for callers that need it.
 
-- Verification note
-  The relationship and data-object parcels were verified with compile checks and focused resolver sanity checks. The `panels.py` parcel compiles cleanly, but runtime `pull_df()` verification is still pending here because this environment does not currently have `pyarrow` available.
+- `cedarkit/utils/plotting/plotting_utils.py`
+  Aligned palette and relation parsing with the calc/pres split. Arrow notation is now treated as an operation/reconstruction spelling, reverse causal aliases are resolved in the correct direction, and relation-name inference now recognizes `reconstructs` as well as causal wording.
 
-- Remaining Part 1A work
-  Palette/parser alignment remains pending for a later Cedarkit Part 1A parcel.
+- `tests/test_plotting_utils_palette.py`
+  Reworked the palette/parser tests so they check operational arrow handling, reverse calc/pres alias resolution, and relation-name inference for reconstruct-style relation strings.
+
+- Verification note
+  The relationship and data-object parcels were verified with compile checks and focused resolver sanity checks. The plotting parcel compiles cleanly, and the plotting palette tests executed successfully in the `mxmap_jpl` Conda environment, which provides the plotting dependencies that are missing from the default Python runtime.

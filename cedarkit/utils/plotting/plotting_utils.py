@@ -55,10 +55,13 @@ def font_resizer(context='paper', multiplier=1.0):
 
         sns.set_context(rc=mpl.rcParams)
 
-import pyarrow.compute as pc
-
-
 def check_palette_syntax(palette, table, logger=None, default_color='gray'):
+    """Align palette keys with relation strings found in plotting tables.
+
+    The plotting layer may encounter both calc-facing and presentation-facing relation
+    strings. Arrow notation is treated as an operation/reconstruction spelling, not as
+    a forward causal spelling.
+    """
     if isinstance(table, pa.Table):
         schema_names = table.schema.names
     else:
@@ -77,45 +80,16 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
 
     palette = dict(palette)
 
-    def parse_relation(rel):
-        rel = rel.strip()
-        for word in (' influences ', ' causes ', ' reconstructs '):
-            if word in rel:
-                x, y = rel.split(word, 1)
-                return x.strip(), word.strip(), y.strip()
-        if '->' in rel:
-            x, y = rel.split('->', 1)
-            return x.strip(), '->', y.strip()
-        return None, None, None
-
     for rel in relations:
         if rel in palette:
             continue
 
-        x, kind, y = parse_relation(rel)
-        if kind is None:
+        candidates = _relation_candidates(rel)
+        if candidates is None:
             palette[rel] = default_color
             if logger:
                 logger.warning(f"Unrecognized relation syntax: {rel}")
             continue
-
-        if kind in ('reconstructs', '->'):
-            candidates = [
-                f'{x} reconstructs {y}',
-                f'{x} -> {y}',
-                f'{y} influences {x}',
-                f'{y} causes {x}',
-            ]
-        elif kind == 'influences':
-            candidates = [
-                f'{x} influences {y}',
-                f'{x} causes {y}',
-            ]
-        else:
-            candidates = [
-                f'{x} causes {y}',
-                f'{x} influences {y}',
-            ]
 
         match = next((k for k in candidates if k in palette), None)
         palette[rel] = palette[match] if match else default_color
@@ -195,18 +169,70 @@ def build_discrete_lag_palette(lags, palette='coolwarm'):
     }
 
 
-_SEPS = [r"\s*->\s*", r"\s*→\s*", r"\s*=>\s*", r"\s+causes\s+", r"\s+influences\s+"]
+_RELATION_PATTERNS = (
+    ("operation", "->", r"^\s*(.*?)\s*->\s*(.*?)\s*$"),
+    ("operation", "→", r"^\s*(.*?)\s*→\s*(.*?)\s*$"),
+    ("operation", "=>", r"^\s*(.*?)\s*=>\s*(.*?)\s*$"),
+    ("operation", "reconstructs", r"^\s*(.*?)\s+reconstructs\s+(.*?)\s*$"),
+    ("causal", "causes", r"^\s*(.*?)\s+causes\s+(.*?)\s*$"),
+    ("causal", "influences", r"^\s*(.*?)\s+influences\s+(.*?)\s*$"),
+)
+
+
+def _parse_relation(rel: str) -> dict | None:
+    text = rel.strip()
+    for relation_type, token, pattern in _RELATION_PATTERNS:
+        m = re.match(pattern, text, flags=re.IGNORECASE)
+        if m:
+            lhs = m.group(1).strip()
+            rhs = m.group(2).strip()
+            if lhs and rhs:
+                return {"lhs": lhs, "rhs": rhs, "relation_type": relation_type, "token": token}
+    return None
+
+
+def _relation_candidates(rel: str) -> list[str] | None:
+    parsed = _parse_relation(rel)
+    if parsed is None:
+        return None
+
+    lhs = parsed["lhs"]
+    rhs = parsed["rhs"]
+    relation_type = parsed["relation_type"]
+    token = parsed["token"]
+
+    if relation_type == "operation":
+        candidates = [
+            f"{lhs} {token} {rhs}" if token in {"->", "→", "=>"} else f"{lhs} reconstructs {rhs}",
+            f"{lhs} reconstructs {rhs}",
+            f"{lhs} -> {rhs}",
+            f"{lhs} => {rhs}",
+            f"{rhs} influences {lhs}",
+            f"{rhs} causes {lhs}",
+        ]
+    else:
+        candidates = [
+            f"{lhs} {token} {rhs}" if token in {"causes", "influences"} else f"{lhs} causes {rhs}",
+            f"{lhs} causes {rhs}",
+            f"{lhs} influences {rhs}",
+            f"{rhs} reconstructs {lhs}",
+            f"{rhs} -> {lhs}",
+            f"{rhs} => {lhs}",
+        ]
+
+    deduped = []
+    for candidate in candidates:
+        if candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
 
 
 def _parse_relation_once(rel: str) -> tuple[str, str] | None:
-    for sep in _SEPS:
-        m = re.split(sep, rel.strip(), maxsplit=1, flags=re.IGNORECASE)
-        if len(m) == 2:
-            a, b = m[0].strip(), m[1].strip()
-            if a and b:
-                return a, b
-    # fallback regex (“A causes B” or “A influences B”)
-    m = re.match(r"^\s*(.*?)\s+(causes|influences)\s+(.*?)\s*$", rel, flags=re.IGNORECASE)
+    parsed = _parse_relation(rel)
+    if parsed:
+        return parsed["lhs"], parsed["rhs"]
+    # Candidate to modularize later if other plotting utilities need richer relation metadata.
+    m = re.match(r"^\s*(.*?)\s+(reconstructs|causes|influences)\s+(.*?)\s*$", rel, flags=re.IGNORECASE)
     if m:
         return m.group(1).strip(), m.group(3).strip()
     return None
