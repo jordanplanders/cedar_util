@@ -1089,7 +1089,7 @@ class Output:
                     )
                 self._full = pl.scan_parquet(str(self.path))
                 # self._full = ds.dataset(str(self.path), format="parquet").to_table()
-                print('loaded from parquet, type:', type(self._full), file=sys.stdout, flush=True)
+                # print('loaded from parquet, type:', type(self._full), file=sys.stdout, flush=True)
             elif format == "sqlite":
                 if self.path is None:
                     raise ValueError("Output.path is required for format='sqlite'.")
@@ -1708,8 +1708,8 @@ class OutputCollection:
             self.calc_lags_peaks(relationship_id=relationship_id, y_col=y_col, smoothing_window=smoothing_window)
 
         viable_lags  = self.find_viable_peaks(lag_filter=None, y_col=y_col, smoothing_window=smoothing_window)
-        print('viable lags after candidate peak finding:')
-        print(viable_lags.head())
+        # print('viable lags after candidate peak finding:')
+        # print(viable_lags.head())
         tested_viable_lags = self.test_lags(lag_df = viable_lags, relationship=relationship)
 
         decision_metric = f'{y_col}_mean'
@@ -1719,15 +1719,15 @@ class OutputCollection:
         tested_viable_lags['abs_lag'] = tested_viable_lags['lag'].apply(lambda x: abs(x) if pd.notna(x) else np.inf)
 
         unrestricted_lags = tested_viable_lags[tested_viable_lags['category'] == 'unrestricted'].copy()
-        print('unrestricted lags after surrogate testing:')
-        print(unrestricted_lags.head())
+        # print('unrestricted lags after surrogate testing:')
+        # print(unrestricted_lags.head())
         unrestricted_lags_filtered = unrestricted_lags.copy().drop(columns=['surr_var']).drop_duplicates(subset=['lag']).sort_values(by=[ 'abs_lag', 'lag',decision_metric ],
                                                           ascending=[True, False, False])
 
         sorted_unrestricted_lags = pd.concat([unrestricted_lags_filtered[unrestricted_lags_filtered['lag'] >= 0].copy(),
                                        unrestricted_lags_filtered[unrestricted_lags_filtered['lag'] < 0].copy()])
-        print('sorted unrestricted lags:')
-        print(sorted_unrestricted_lags.head())
+        # print('sorted unrestricted lags:')
+        # print(sorted_unrestricted_lags.head())
         if len(sorted_unrestricted_lags[sorted_unrestricted_lags['peak_end']>=0])>0:
             target_lag = sorted_unrestricted_lags[sorted_unrestricted_lags['peak_end']>=0].iloc[0]['lag']
         else:
