@@ -38,7 +38,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-_REL_SEPS = [r"\s*->\s*", r"\s*→\s*", r"\s*=>\s*", r"\s+causes\s+", r"\s+influences\s+"]
+_REL_SEPS_influence = [r"\s+causes\s+", r"\s+influences\s+"]
+_REL_SEPS_operation = [r"\s*->\s*", r"\s*→\s*", r"\s*=>\s*", r"\s+reconstructs\s+"]
 
 
 def _normalize_lag_list(value, default_max_lag=None):
@@ -88,18 +89,29 @@ def _path_exists(path_like):
 
 
 def _parse_relation_pair(rel):
+    '''
+    parses relationship and returns (lhs, rhs) with lhs as the forcing variable and rhs as the responding variable, if possible. Otherwise returns (None, None).
+    '''
     if rel is None:
         return None, None
     rel = str(rel).strip()
-    for sep in _REL_SEPS:
+    # causal langauge parsing ('causes', 'influences')
+    for sep in _REL_SEPS_influence:
         parts = re.split(sep, rel, maxsplit=1, flags=re.IGNORECASE)
         if len(parts) == 2:
             lhs, rhs = parts[0].strip(), parts[1].strip()
             if lhs and rhs:
                 return lhs, rhs
-    m = re.match(r"^\s*(.*?)\s+(causes|influences)\s+(.*?)\s*$", rel, flags=re.IGNORECASE)
-    if m:
-        return m.group(1).strip(), m.group(3).strip()
+    # operational parsing (reconstruct, arrow)
+    for sep in _REL_SEPS_operation:
+        parts = re.split(sep, rel, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) == 2:
+            lhs, rhs = parts[1].strip(), parts[0].strip()
+            if lhs and rhs:
+                return lhs, rhs
+    # m = re.match(r"^\s*(.*?)\s+(causes|influences)\s+(.*?)\s*$", rel, flags=re.IGNORECASE)
+    # if m:
+    #     return m.group(1).strip(), m.group(3).strip()
     return None, None
 
 
@@ -648,7 +660,7 @@ if __name__ == "__main__":
               ROW_NUMBER() OVER (
                 ORDER BY rss.run_id, rss.draw_id, rss.lag, {cause_name_expr}, {effect_name_expr}
               ) - 1 AS ind_i,
-              {cause_name_expr} || ' -> ' || {effect_name_expr} AS relation,
+              {effect_name_expr} || ' -> ' || {cause_name_expr} AS relation,
               {cause_name_expr} AS forcing,
               {effect_name_expr} AS responding,
               rss.run_id AS run_id,
