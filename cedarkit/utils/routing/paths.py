@@ -208,6 +208,12 @@ def sqlite_paths(proj_dir, config, *, run_id=None, calc_location=None, output_di
     consolidated_dir = resolve_consolidated_dir(Path(calc_location), config, consolidated_fmt)
     if ensure:
         consolidated_dir.mkdir(parents=True, exist_ok=True)
+    candidates = sorted(consolidated_dir.glob("collector*.sqlite"))
+    if len(candidates) > 1:
+        raise RuntimeError(
+            "Multiple collector SQLite files detected in resolved consolidated directory. "
+            f"Candidates: {[str(p) for p in candidates]}"
+        )
     collector_path = consolidated_dir / f"{collector_name}.sqlite"
 
     run_db_path = None
