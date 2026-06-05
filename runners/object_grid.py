@@ -609,8 +609,8 @@ if __name__ == "__main__":
             clauses.append("mc_cause.E = :E")
             clauses.append("mc_cause.tau = :tau")
             clauses.append("rss.metric = 'corr'")
-            clauses.append(f"{cause_name_expr} IN (:col_var_name, :target_var_name)")
             clauses.append(f"{effect_name_expr} IN (:col_var_name, :target_var_name)")
+            clauses.append(f"{cause_name_expr} IN (:col_var_name, :target_var_name)")
             clauses.append(f"{cause_name_expr} != {effect_name_expr}")
 
             tp_value = td.get("Tp", td.get("tp"))
@@ -636,6 +636,8 @@ if __name__ == "__main__":
                     params[key] = int(lag)
                 clauses.append(f"rss.lag IN ({', '.join(lag_placeholders)})")
 
+            # there is a convention that r1 is x reconstructs y, so x is by default effect and y is cause.
+            # this appears not be problematic when both directions are being queried together.
             sql = f"""
             SELECT
               mc_cause.E AS E,
@@ -650,12 +652,12 @@ if __name__ == "__main__":
                 ELSE 'both'
               END AS surr_var,
               MAX(COALESCE(vci.surrogate_number, 0), COALESCE(vei.surrogate_number, 0)) AS surr_num,
-              {cause_name_expr} AS x_id,
+              {effect_name_expr} AS x_id,
               0 AS x_age_model_ind,
-              {cause_name_expr} AS x_var,
-              {effect_name_expr} AS y_id,
+              {effect_name_expr} AS x_var,
+              {cause_name_expr} AS y_id,
               0 AS y_age_model_ind,
-              {effect_name_expr} AS y_var,
+              {cause_name_expr} AS y_var,
               s.draw_size AS LibSize,
               ROW_NUMBER() OVER (
                 ORDER BY rss.run_id, rss.draw_id, rss.lag, {cause_name_expr}, {effect_name_expr}

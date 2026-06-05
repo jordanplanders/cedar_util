@@ -261,7 +261,11 @@ class RunConfig:
         self.train_ind_i = 0
         self.train_ind_f = -1
         self.knn = None
+
+        # eventually factor out Tp in favor of tp
         self.Tp = None
+        self.tp = None
+        
         self.sample = None
         self.weighted = None
 
@@ -311,6 +315,12 @@ class RunConfig:
             log_type="debug",  # or "info", but debug is nice for “comment/uncomment” style
         )
 
+        tp = grp_d.get('Tp', None)
+        if tp is None:
+            tp = grp_d.get('tp', None)
+        grp_d['Tp'] = tp
+        grp_d['tp'] = tp
+
         for key, value in grp_d.items():
             if hasattr(self, key):
                 setattr(self, key, value)
@@ -328,6 +338,7 @@ class RunConfig:
             log_type="debug",
         )
         # print('RunConfig populated traits:', self.to_dict(), file=sys.stdout, flush=True)
+
 
 
     def copy(self):
@@ -1331,7 +1342,8 @@ class OutputCollection:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self._ensure_compat_attributes()
 
-    def set_relationships(self, influence_word="causes", operation_word="reconstructs", output_convention="influence", pres_convention="influence",
+    # note: the default output_convention was 'influence' prior to may 29, 2026
+    def set_relationships(self, influence_word="causes", operation_word="reconstructs", output_convention="operation", pres_convention="influence",
         convention_mapping=None):
         self.relationships = Relationship(self.grp_config.var_x, self.grp_config.var_y,
                                           operation_word=operation_word, output_convention=output_convention,
@@ -1341,9 +1353,9 @@ class OutputCollection:
         self.r2 = RelationshipSide('r2', relationship=self.relationships, operation_word=operation_word, output_convention=output_convention,
                                           pres_convention=pres_convention, convention_mapping=convention_mapping) if self.relationships is not None else None
 
-    def get_relationship(self, relationship_id='r1'):
+    def get_relationship(self, relationship_id='r1', output_convention="operation"):
         if self.relationships is None:
-            self.set_relationships()
+            self.set_relationships(output_convention=output_convention)
         if relationship_id == 'r1':
             return self.r1
         if relationship_id == 'r2':
