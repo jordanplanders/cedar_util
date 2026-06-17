@@ -1,7 +1,7 @@
 [project]
 name = "cedarkit"
 version = "0.1.0"
-description = "Cedarkit: supporting tools for CCM/EDM workflows, data structures, configuration parsing, and HPC pipelines."
+description = "Cedarkit, CCM–EDM Data Analysis Routines: supporting tools for CCM/EDM workflows, data structures, configuration parsing, and HPC pipelines."
 requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "GPL-3.0" }
@@ -19,6 +19,7 @@ dependencies = [
     "joblib",
     "pyleoclim",
     "pyEDM",
+    "polars"
 ]
 #@ git+https://github.com/jordanplanders/pyEDM.git@5defad56bab1d673a38f6b375a78d7319ac1c8e1
 [tool.setuptools.packages.find]
