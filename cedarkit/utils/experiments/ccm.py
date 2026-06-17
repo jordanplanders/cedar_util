@@ -61,8 +61,9 @@ def run_experiment(arg_tuple):
 
     # note: at some point "embedded=False" will not always be correct
     # cpu_count = 1 for HPC runs where resources are allocated less flexibly
+    # changed to .tp from .Tp
     ccm_out = pe.CCM(dataFrame=ccm_obj.df,
-                     E=ccm_obj.E, Tp=ccm_obj.Tp, tau=-ccm_obj.tau,
+                     E=ccm_obj.E, Tp=ccm_obj.tp, tau=-ccm_obj.tau,
                      exclusionRadius=ccm_obj.exclusion_radius,
                      knn=ccm_obj.knn, verbose=False,
                      columns=ccm_obj.col_var,

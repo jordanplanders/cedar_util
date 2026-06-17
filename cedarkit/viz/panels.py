@@ -212,6 +212,7 @@ class BasePlot:
                         outputgrp.relationships.surr_r2y_calc,
                     ]
                 else:
+                    print(f"Warning: relationship_id '{relationship_id}' not recognized. Using it directly as a category filter.")
                     relationships = [relationship_id]
                     if getattr(outputgrp, "relationships", None) is not None:
                         relationships.append(outputgrp.relationships.to_calc_mapping.get(relationship_id, relationship_id))

@@ -77,6 +77,7 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
         relations = [r for r in pc.unique(table[relation_col]).to_pylist() if r is not None]
     else:
         relations = [r for r in table.select(relation_col).unique().collect()[relation_col].to_list() if r is not None]
+    print(f"Unique relations found in table: {relations}")
 
     palette = dict(palette)
 
