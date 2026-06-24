@@ -126,7 +126,8 @@ class DataVarConfig:
         - real value column: ``var_info['real_ts_var']`` ->
           ``real_ts_d['var']`` -> ``var_info['data_var']``
         - real time column: ``var_info['real_ts_time']`` ->
-          ``real_ts_d['time']`` -> ``var_info['time_var']`` -> ``'time'``
+          ``real_ts_d['real_time_var']`` -> ``real_ts_d['time']`` ->
+          ``var_info['time_var']`` -> ``'time'``
         - surrogate CSV stem: ``var_info['surr_csv_stem']`` ->
           ``surr_ts_d['csv_stem']`` -> ``var_info['surr_file_name']``
           (with ``'.txt'`` stripped)
@@ -190,7 +191,9 @@ class DataVarConfig:
 
         # real_ts_time
         if 'real_ts_time' in var_info.keys():
-            self.real_ts_time = var_info.pop('real_time_var', None)
+            self.real_ts_time = var_info.pop('real_ts_time', None)
+        elif 'real_time_var' in real_ts_d.keys():
+            self.real_ts_time = real_ts_d.pop('real_time_var', None)
         elif 'time' in real_ts_d.keys():
             self.real_ts_time = real_ts_d.pop('time', None)
         elif 'time_var' in var_info.keys():
