@@ -3139,8 +3139,59 @@ class CMConfigBase(RunConfig):
 
 
 class CCMConfig(CMConfigBase):
+    """Fully resolved configuration for one CCM run, ready to execute via :meth:`run_ccm`.
+
+    Extends :class:`CMConfigBase` with everything specific to actually
+    running CCM: the output filename/path (:meth:`get_filename`,
+    :meth:`set_output_calc_sub`), the libsize range to sweep
+    (:meth:`set_libsizes`), and the lag-shift applied to the merged
+    dataframe (:meth:`shift`) before :meth:`run_ccm` hands off to
+    ``cedarkit.utils.experiments.run_experiment``.
+
+    ``set_col_ts``/``set_target_ts``/``make_df`` are also defined directly
+    on this class, overriding the versions on :class:`CMConfigBase` that
+    were recently consolidated there. ``set_col_ts``/``make_df`` are exact
+    duplicates of the base class versions and are candidates for deletion;
+    ``set_target_ts`` is *not* a pure duplicate — see the notes doc before
+    removing it.
+    """
 
     def __init__(self, grp_specs, config, proj_dir=None, cpus=1, exclusion_radius=None, limit_surr_libsizes= True):
+        """Resolve variables, build the merged/shifted dataframe, and determine the output path and libsize range.
+
+        Builds on :class:`CMConfigBase`'s variable resolution: computes the
+        output filename/path (:meth:`get_filename`,
+        :meth:`set_output_calc_sub`), loads both variables' timeseries
+        (:meth:`set_col_ts`/:meth:`set_target_ts`), merges and shifts them
+        into ``self.df`` (:meth:`make_df` then :meth:`shift`), resolves the
+        libsize sweep range (:meth:`set_libsizes`, trimmed to the last 5 if
+        either variable is surrogate data and ``limit_surr_libsizes`` is
+        true), and infers ``self.time_var``/``self.noTime`` from whichever
+        column of ``self.df`` isn't one of the two variable columns.
+
+        Parameters
+        ----------
+        grp_specs : dict
+            Trait values for this run. Also used to build a separate,
+            unresolved ``RunConfig`` snapshot stored as ``self.rc`` (used
+            later by :meth:`run_ccm` to construct the output
+            ``OutputCollection``).
+        config : cedarkit.core.project_config.ProjectConfig
+            Project configuration; must have ``ccm_config.max_libsize``/
+            ``ccm_config.libsize_step`` (and optionally
+            ``ccm_config.min_window``/``ccm_config.min_libsize``), and
+            ``output.csv.dir_structure``/``output.csv.file_format`` (or an
+            ``intermediate.csv`` block — see :meth:`set_output_calc_sub`).
+        proj_dir : str or pathlib.Path, optional
+            Root project directory, passed to :class:`CMConfigBase`.
+        cpus : int, optional
+            Stored as ``self.cpus``. Default is ``1``.
+        exclusion_radius : float, optional
+            Passed to :class:`CMConfigBase`.
+        limit_surr_libsizes : bool, optional
+            If true (default), trims ``self.libsizes`` to its last 5 values
+            when either variable is using surrogate data.
+        """
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
         rc = RunConfig(grp_specs)
@@ -3203,6 +3254,23 @@ class CCMConfig(CMConfigBase):
                  indent=0, log_type="info")
 
     def get_filename(self, config):
+        """Generate this run's output CSV filename from ``config``'s template, or a fallback pattern.
+
+        Tries ``template_replace(config.output.csv.file_format, self.to_dict())``
+        first; falls back to a hardcoded
+        ``{pset_id}_E{E}_tau{tau}__{surr_var}{surr_num}.csv`` pattern if that
+        fails for any reason (the ``except`` here is unqualified, so it also
+        catches errors unrelated to the template lookup itself).
+
+        Parameters
+        ----------
+        config : cedarkit.core.project_config.ProjectConfig
+
+        Returns
+        -------
+        str
+            Filename, normalized via :func:`check_csv`.
+        """
         # generate filename of CCM CSV based on template in config
         pset_d = self.to_dict()
         try:
@@ -3214,7 +3282,25 @@ class CCMConfig(CMConfigBase):
         return check_csv(file_name)
 
     def check_run_exists(self):
+        """Check whether this run's output file (or its stem) already exists on disk.
 
+        Returns
+        -------
+        tuple[bool, bool] or bool
+            ``(pset_exists, stem_exists)`` from :func:`check_exists`, where
+            ``pset_exists`` is the strong existence criterion (exact file)
+            and ``stem_exists`` is the looser one (matching stem).
+
+        Note
+        ----
+        The body has a ``self.output_path is None or self.file_name is
+        None`` guard that returns ``False`` early — but it's written
+        *after* the ``check_exists(check_csv(self.file_name),
+        Path(self.output_path))`` call, not before. ``Path(None)`` raises
+        ``TypeError``, so as written this guard can never actually run if
+        either value is ``None`` — the call above it would already have
+        raised. See ``notes_core_todos.md`` for follow-up; not changed here.
+        """
         pset_exists, stem_exists = check_exists(check_csv(self.file_name), Path(self.output_path))
         if self.output_path is None or self.file_name is None:
             return False
@@ -3226,7 +3312,27 @@ class CCMConfig(CMConfigBase):
         return pset_exists, stem_exists
 
     def set_output_calc_sub(self, config, output_dir, file_name):
+        """Resolve this run's output subdirectory under ``output_dir`` (or an ``intermediate`` location).
 
+        If ``config`` is in CSV entry mode (``config.get_entry() ==
+        "csv"``) and has an ``intermediate.csv`` block, routes output under
+        ``self.calc_location / "intermediate" / <csv dir>`` instead of the
+        normal output tree, filling in ``intermediate.csv.dir_structure``.
+        Otherwise fills in ``config.output.csv.dir_structure`` under
+        ``output_dir``.
+
+        Parameters
+        ----------
+        config : cedarkit.core.project_config.ProjectConfig
+        output_dir : str or pathlib.Path
+            Base output directory used in the non-intermediate branch.
+        file_name : str
+            Currently unused by this method's body.
+
+        Returns
+        -------
+        pathlib.Path
+        """
         # Route raw CCM CSV outputs to intermediate when configured.
         use_intermediate = getattr(config, "get_entry", lambda: None)() == "csv" and hasattr(config, "intermediate")
         if use_intermediate and hasattr(config.intermediate, "csv"):
@@ -3243,6 +3349,14 @@ class CCMConfig(CMConfigBase):
         return grp_path
 
     def set_libsizes(self):
+        """Set ``self.libsizes`` to the libsize values to sweep over.
+
+        If ``self.min_window`` is set, sweeps two bands — near
+        ``self.min_libsize`` and near ``self.max_libsize``, each
+        ``self.min_window`` wide — rather than the full range between them.
+        Otherwise sweeps the full range
+        ``[self.min_libsize, self.max_libsize]`` at ``self.libsize_step``.
+        """
         if self.min_window is not None:
             self.libsizes = np.concatenate([np.arange(self.min_libsize, self.min_libsize+self.min_window, self.libsize_step),
                                             np.arange(self.max_libsize -self.min_window, self.max_libsize, self.libsize_step)])
@@ -3250,6 +3364,9 @@ class CCMConfig(CMConfigBase):
             self.libsizes = np.arange(self.min_libsize, self.max_libsize + 1, self.libsize_step)
 
     def set_col_ts(self, surr_num=None):
+        # DUPLICATE of CMConfigBase.set_col_ts (identical body, minus that one's
+        # `col_var_obj is None` guard, which is never relevant here since CCMConfig.__init__
+        # always resolves it first). Deletion candidate — see notes_core_todos.md.
         if self.col_var_obj.ts_type == 'surr':
             if (self.col_var_obj.surr_num is None) and (surr_num is not None):
                 self.col_var_obj.surr_num = surr_num
@@ -3260,6 +3377,11 @@ class CCMConfig(CMConfigBase):
             self.col_var_obj.get_real()
 
     def set_target_ts(self, surr_num=None):
+        # NOT a pure duplicate of CMConfigBase.set_target_ts — behaves differently when
+        # self.surr_var matches the target side but surr_num is None: this override forces
+        # self.target_var_obj.surr_num = 0 (real data) in that case, while the base class
+        # version leaves the existing surr_num untouched. Do not delete without checking
+        # which behavior is intended — see notes_core_todos.md.
         if self.surr_var in ('y', self.target_var, 'both'):
             if (self.target_var_obj.surr_num is None) and (surr_num is not None):
                 self.target_var_obj.surr_num = surr_num
@@ -3272,6 +3394,8 @@ class CCMConfig(CMConfigBase):
             self.target_var_obj.get_real()
 
     def make_df(self):
+        # DUPLICATE of CMConfigBase.make_df (identical body, plus a chunk of dead
+        # commented-out code below). Deletion candidate — see notes_core_todos.md.
         self.df = merge_variable_ts(self.col_var_obj, self.target_var_obj)
         # col_df = self.col_var_obj.ts.rename(columns={self.col_var_obj.col_name: self.col_var_obj.var})
         # target_df = self.target_var_obj.ts.rename(columns={self.target_var_obj.col_name: self.target_var_obj.var})
@@ -3294,6 +3418,13 @@ class CCMConfig(CMConfigBase):
         return self
 
     def shift(self):
+        """Shift ``self.target_var`` by ``self.lag``, drop the resulting NaNs, and trim ``max_libsize`` to fit.
+
+        Mutates ``self.df`` in place (replacing it with the shifted,
+        NaN-dropped, reindexed version), updates ``self.train_ind_f`` to the
+        new last index, and caps ``self.max_libsize`` at 75% of the
+        resulting row count if it was larger.
+        """
         shifted = self.df.copy()
         shifted[self.target_var] = shifted[self.target_var].shift(self.lag)
         shifted = shifted.dropna()
@@ -3304,7 +3435,56 @@ class CCMConfig(CMConfigBase):
         self.max_libsize = min(self.max_libsize, int(.75*len(self.df)))
 
     def run_ccm(self, overwrite=None, ind=None, args=None, script=None):
+        """Run this CCM configuration via ``run_experiment`` and store the result as an ``OutputCollection``.
 
+        Normalizes ``args`` to a ``SimpleNamespace`` (building a default
+        one from ``overwrite`` if not given), checks whether this run's
+        output already exists (:meth:`check_run_exists`), determines
+        overwrite/continue behavior via
+        ``cedarkit.utils.io.gonogo.decide_file_handling``, runs
+        ``cedarkit.utils.experiments.run_experiment``, writes the result via
+        ``write_to_file``, and wraps it in ``self.outputgrp``.
+
+        Parameters
+        ----------
+        overwrite : bool, optional
+            Whether to overwrite an existing output file. Ignored if
+            ``args`` is given (use ``args.override`` instead).
+        ind : int, optional
+            If given, stored as ``self.id_num`` and passed through to
+            ``run_experiment``.
+        args : SimpleNamespace or dict or object, optional
+            Run arguments; coerced to a ``SimpleNamespace`` if not already
+            one. Must end up with ``override``/``write`` (and
+            ``datetime_flag``) attributes.
+        script : Any, optional
+            Passed through to ``run_experiment``.
+
+        Returns
+        -------
+        tuple
+            ``(ccm_out_df, df_path)`` from ``run_experiment``.
+
+        Raises
+        ------
+        TypeError
+            If ``args`` is given but isn't a ``SimpleNamespace``, ``dict``,
+            or an object with a ``__dict__``.
+
+        Note
+        ----
+        ``self.check_run_exists()`` is called twice in a row (the first
+        result is used only to compute ``overwrite_flag``, which is then
+        never read again — ``overwrite`` is reassigned from
+        ``decide_file_handling``'s return value instead). Separately,
+        ``decide_file_handling``'s ``run_continue`` return value is also
+        never read after being assigned — the method proceeds to call
+        ``run_experiment``/``write_to_file`` unconditionally regardless of
+        what it says. Whether this is intentional (e.g. ``write_to_file``
+        itself decides what to do with ``overwrite``, making
+        ``run_continue`` advisory/logging-only) isn't visible from this
+        method alone — see ``notes_core_todos.md``.
+        """
         from cedarkit.utils.experiments import run_experiment, write_to_file
         from cedarkit.utils.io.gonogo import decide_file_handling
         if ind is not None:
