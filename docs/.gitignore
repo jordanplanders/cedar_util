@@ -1,0 +1,12 @@
+_site/
+api/
+_inv/
+_sidebar.yml
+/.quarto/
+objects.json
+site_libs/
+_objects_*.json
+notebooks/
+
+**/*.quarto_ipynb
+tutorials/_tutorials_table.qmd

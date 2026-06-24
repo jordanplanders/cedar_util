@@ -1,0 +1,23 @@
+package_slug: cedarkit          # importable name; also the package directory name
+package_title: CedarKit         # display name (site title, README heading)
+description: "CCM–EDM Data Analysis Routines: supporting tools for CCM/EDM workflows, data structures, configuration parsing, and HPC pipelines."
+author: "Jordan Landers"
+license: MIT                       # written into pyproject.toml metadata only — no LICENSE file is generated
+github_org: jordanplanders
+github_repo: cedar_util
+python_version: "3.13"
+conda_env_name: cedar_env
+dependencies:                      # pip dependencies, used in pyproject.toml and .binder/environment.yml
+  - pandas
+  - scipy
+  - matplotlib
+  - seaborn
+  - PyYAML
+  - cloudpickle
+  - joblib
+  - pyleoclim
+  - pyEDM
+  - polars
+  - pyarrow
+
+docs_dir: docs                     # optional, defaults to "docs" — see "Existing packages" below

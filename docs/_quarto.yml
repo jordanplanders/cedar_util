@@ -1,0 +1,123 @@
+project:
+  type: website
+  output-dir: _site
+  resources:
+    - notebooks
+    - scripts
+    - figures
+    - objects.txt
+    - thumbnails
+  pre-render:
+    - python scripts/sync_notebooks.py
+    - python scripts/generate_tutorials_index.py
+    - python scripts/inject_doc_figures.py
+
+metadata-files:
+  - api/_sidebar.yml
+
+filters:
+  - "interlinks"
+
+interlinks:
+  fast: true
+  autolink: true
+  sources:
+    numpy:
+      url: https://numpy.org/doc/stable/
+    python:
+      url: https://docs.python.org/3/
+    cedarkit:
+      url: /
+      inv: objects.txt
+  aliases:
+    pandas: pd
+
+execute:
+  freeze: true
+
+website:
+  title: "CedarKit"
+  description: "CCM–EDM Data Analysis Routines: supporting tools for CCM/EDM workflows, data structures, configuration parsing, and HPC pipelines."
+  page-navigation: true
+  navbar:
+    title: false
+    # logo: thumbnails/logo.png
+    logo-alt: "CedarKit"
+    left:
+      - file: get-started/installation.qmd
+        text: Get Started
+      - file: tutorials/index.qmd
+        text: Tutorials
+      - href: api/index.qmd
+        text: Reference
+
+    right:
+      - icon: github
+        href: https://github.com/jordanplanders/cedar_util
+
+  sidebar:
+    - id: get-started
+      title: Get Started
+      style: floating
+      align: left
+      contents:
+        - get-started/overview.qmd
+        - section: "Basic Use"
+          contents:
+          - get-started/installation.qmd
+          - get-started/quickstart.qmd
+
+    - id: tutorials
+      title: Tutorials
+      style: floating
+      align: left
+      contents:
+        - tutorials/index.qmd
+        - section: "Getting started"
+          contents:
+            - text: "Placeholder"
+              href: notebooks/base_classes/placeholder.ipynb
+
+        - section: "Model demos"
+          contents:
+            - text: "Placeholder"
+              href: notebooks/model_demos/placeholder.ipynb
+
+        - section: "Functionality demos"
+          contents:
+            - text: "Placeholder"
+              href: notebooks/functionality_demos/placeholder.ipynb
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 5
+    toc-location: right
+    include-after-body: _version-picker.html
+    css:
+      - api/_styles-quartodoc.css
+      - styles.css
+
+quartodoc:
+  style: pkgdown
+  dir: api
+  package: cedarkit
+  out_index: index.qmd
+  render_interlinks: true
+  renderer:
+    style: markdown
+    table_style: description-list
+  sidebar: "api/_sidebar.yml"
+  css: "api/_styles-quartodoc.css"
+
+  sections:
+    - title: API Reference
+      desc: |
+        Add your own modules, classes, and functions here, e.g. "cedarkit.MyClass".
+        The two entries below are scaffold-generated examples — see
+        cedarkit/_protodocs_example.py and _protodocs_docstring_template.py.
+        Delete them from this list (and the files themselves) once you have real content.
+      contents:
+        - _protodocs_example.protodocs_example_plot
+        - _protodocs_docstring_template.protodocs_docstring_template
