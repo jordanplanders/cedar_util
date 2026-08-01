@@ -28,9 +28,7 @@ def set_calc_path(args, proj_dir, config, second_suffix=''):
 
     if calc_location is None:
         loc = check_location(proj_dir)
-        print(loc)
         calc_dir = config.get_dynamic_attr("{var}.calc_dir", loc)
-        print(calc_dir)
         calc_location = proj_dir / (calc_dir + f'{second_suffix}')  #'calc_local_tmp'
 
 
