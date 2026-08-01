@@ -77,9 +77,7 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
         relations = [r for r in pc.unique(table[relation_col]).to_pylist() if r is not None]
     else:
         relations = [r for r in table.select(relation_col).unique().collect()[relation_col].to_list() if r is not None]
-    print(f"Unique relations found in table: {relations}")
-
-    palette = dict(palette)
+    palette = {} if palette is None else dict(palette)
 
     for rel in relations:
         if rel in palette:
@@ -239,13 +237,19 @@ def _parse_relation_once(rel: str) -> tuple[str, str] | None:
     return None
 
 
-def infer_var_names_from_relation(table: pa.Table, relation_col: str = "relation") -> tuple[str, str]:
-
-    if relation_col not in table.schema.names:
-        raise KeyError(f"Missing column: {relation_col}")
-    # get uniques without materializing full column
-    # enc = pc.unique(table[relation_col]).to_pylist() #pc.dictionary_encode(table[relation_col])
-    uniques = pc.unique(table[relation_col]).to_pylist()
+def infer_var_names_from_relation(table, relation_col: str = "relation") -> tuple[str, str]:
+    if isinstance(table, pa.Table):
+        if relation_col not in table.schema.names:
+            raise KeyError(f"Missing column: {relation_col}")
+        uniques = pc.unique(table[relation_col]).to_pylist()
+    else:
+        schema_names = table.collect_schema().names() if isinstance(table, pl.LazyFrame) else table.columns
+        if relation_col not in schema_names:
+            raise KeyError(f"Missing column: {relation_col}")
+        relation_values = table.select(pl.col(relation_col).drop_nulls().unique())
+        if isinstance(relation_values, pl.LazyFrame):
+            relation_values = relation_values.collect()
+        uniques = relation_values[relation_col].to_list()
     names = set()
     for r in uniques:
         parsed = _parse_relation_once(r)
@@ -332,8 +336,23 @@ def add_relation_s_inferred(
         if relation_col not in schema_names or surr_col not in schema_names:
             raise KeyError(f"Need columns '{relation_col}' and '{surr_col}'")
 
+        # Match the established Arrow contract without converting through Arrow:
+        # explicit names, then table metadata columns, then canonical-relation inference.
+        if x_var_name is None and "x_var" in schema_names:
+            x_values = table.select(pl.col("x_var").drop_nulls().cast(pl.String).filter(pl.col("x_var") != "").unique())
+            if isinstance(x_values, pl.LazyFrame):
+                x_values = x_values.collect()
+            if x_values.height == 1:
+                x_var_name = x_values["x_var"][0]
+        if y_var_name is None and "y_var" in schema_names:
+            y_values = table.select(pl.col("y_var").drop_nulls().cast(pl.String).filter(pl.col("y_var") != "").unique())
+            if isinstance(y_values, pl.LazyFrame):
+                y_values = y_values.collect()
+            if y_values.height == 1:
+                y_var_name = y_values["y_var"][0]
+
         if x_var_name is None or y_var_name is None:
-            raise ValueError("x_var_name and y_var_name must be provided for the Polars branch")
+            x_var_name, y_var_name = infer_var_names_from_relation(table, relation_col)
 
         if relation_col == "relation":
             table = table.rename({"relation": "relation_0"})
