@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from typing import Any, Mapping
 
 import yaml
@@ -63,6 +65,15 @@ class ProjectConfig:
     def __repr__(self):
         # Returns a string showing the class name and full __dict__.
         return f"{self.__class__.__name__}({self.__dict__})"
+
+    # Canonical home for project-directory resolution previously duplicated in
+    # graphccm.utils.time_axis and graphccm.utils.sampling.meta_master.
+    @property
+    def project_dir(self) -> Path:
+        """Directory containing the source project configuration file."""
+        if self.file_path is None:
+            raise ValueError("ProjectConfig must have file_path set to resolve project_dir.")
+        return Path(self.file_path).resolve().parent
 
     def has_nested_attribute(self, attr_chain):
         """Check whether a dotted attribute chain resolves on this instance.
@@ -160,6 +171,53 @@ class ProjectConfig:
             raise ValueError("No file path specified for saving the configuration.")
         with open(self.file_path, 'w') as file:
             yaml.dump(self.to_dict(), file)
+
+    # Replaces graphccm.utils.time_axis._persist_yaml_updates.
+    def patch_source(self, updates: Mapping[str, Any]) -> None:
+        """Patch dotted keys in the source YAML without serializing merged config.
+
+        ``load_config`` expands external variable configuration into this
+        object. This method rereads and patches the source YAML so those
+        expanded runtime fields are not written back into the project file.
+        The completed YAML is atomically substituted for the original file.
+        """
+        if self.file_path is None:
+            raise ValueError("ProjectConfig must have file_path set to patch its source.")
+
+        source_path = Path(self.file_path).resolve()
+        raw = _load_yaml(source_path)
+        for key_path, value in updates.items():
+            parts = str(key_path).split(".")
+            if not all(parts):
+                raise ValueError(f"Invalid configuration key path: {key_path!r}")
+            current = raw
+            for part in parts[:-1]:
+                if part not in current or not isinstance(current[part], dict):
+                    current[part] = {}
+                current = current[part]
+            current[parts[-1]] = value
+
+        original_mode = source_path.stat().st_mode & 0o7777
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=source_path.parent,
+                prefix=f".{source_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary_file:
+                yaml.safe_dump(raw, temporary_file, sort_keys=False)
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+                temporary_path = Path(temporary_file.name)
+            temporary_path.chmod(original_mode)
+            os.replace(temporary_path, source_path)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     def get_dynamic_attr(self, attr_chain, dynamic_var):
         """Access a nested attribute chain with one segment substituted at runtime.
