@@ -78,6 +78,9 @@ def run_experiment(arg_tuple):
 
     ccm_out_df = pd.concat(
         [po.unpack_ccm_output(ccm_out.CrossMapList[ip]) for ip in range(len(ccm_out.CrossMapList))])
+    # CedarKit's boolean API uses False for equal weights. Persist the
+    # canonical name before write_to_file removes the legacy boolean field.
+    ccm_out_df['weighting_scheme'] = 'exp' if bool(ccm_obj.weighted) else 'equal'
     ccm_out_df = po.add_meta_data(ccm_out, ccm_out_df, ccm_obj.train_ind_i, ccm_obj.train_ind_f, lag=ccm_obj.lag)
     ccm_out_df['lag'] = ccm_obj.lag
 
