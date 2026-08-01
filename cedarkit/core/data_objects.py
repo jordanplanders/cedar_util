@@ -1587,18 +1587,21 @@ class OutputCollection:
         """Build ``grp_config``/``relationships`` from ``grp_specs``, and ``table`` from ``in_table``.
 
         ``grp_specs`` becomes ``self.grp_config`` directly if it's already a
-        ``RunConfig``, or is wrapped in one if it's a dict. ``in_table`` is
-        normalized to a list and handled one of two ways: if every element
-        is an ``OutputCollection``, their corresponding ``Output`` attributes
-        are merged in via :meth:`combine_OutputCollections`; otherwise each
+        ``RunConfig``, or is wrapped in one if it's a dict. A GraphCM
+        ``RunConfig`` is retained directly when it exposes ``get_trait_value``
+        and its directed ``relationship``. ``in_table`` is normalized to a
+        list and handled one of two ways: if every element is an
+        ``OutputCollection``, their corresponding ``Output`` attributes are
+        merged in via :meth:`combine_OutputCollections`; otherwise each
         element (a ``pyarrow.Table``, ``polars.DataFrame``/``LazyFrame``,
         ``pandas.DataFrame``, or ``Output``) is converted to a polars
         ``LazyFrame`` and concatenated into ``self.table``.
 
         Parameters
         ----------
-        grp_specs : RunConfig or dict, optional
-            Group-level configuration, or trait dict to build one from.
+        grp_specs : RunConfig, GraphCM RunConfig, or dict, optional
+            Group-level configuration, or trait dict to build a CedarKit
+            ``RunConfig`` from.
         in_table : Any or list[Any], optional
             Table(s) (or other ``OutputCollection`` instances) to populate
             ``self.table`` from.
@@ -1661,8 +1664,15 @@ class OutputCollection:
         elif isinstance(grp_specs, dict):
             iterable_d = {k: correct_iterable(v) for k, v in grp_specs.items()}
             self.grp_config = RunConfig(iterable_d)
+        elif (
+            hasattr(grp_specs, "get_trait_value")
+            and hasattr(grp_specs, "to_param_d")
+            and hasattr(grp_specs, "relationship")
+        ):
+            self.grp_config = grp_specs
 
-        self.tmp_path = tmp_dir if tmp_dir is not None else (self.grp_config.proj_dir / 'tmp' if (self.grp_config is not None and self.grp_config.proj_dir is not None) else Path.cwd() / 'tmp')
+        config_proj_dir = getattr(self.grp_config, "proj_dir", None)
+        self.tmp_path = tmp_dir if tmp_dir is not None else (config_proj_dir / 'tmp' if config_proj_dir is not None else Path.cwd() / 'tmp')
 
         self.tmp_path.mkdir(parents=True, exist_ok=True)
         self.dyad_home = None
@@ -1685,9 +1695,15 @@ class OutputCollection:
                 return pl.from_arrow(obj).lazy()
             if isinstance(obj, pd.DataFrame):
                 df = obj.copy()
-                for col in ['E', 'tau', 'Tp', 'lag', 'knn', 'surr_var', 'surr_num', 'x_id', 'x_age_model_ind', 'x_var', 'y_id', 'y_age_model_ind', 'y_var', 'LibSize', 'ind_i', 'relation', 'forcing', 'responding']:
-                    if col not in df.columns:
-                        df[col] = self.grp_config.get_trait_value(col)
+                if isinstance(self.grp_config, RunConfig):
+                    for col in [
+                        'E', 'tau', 'Tp', 'lag', 'knn', 'surr_var', 'surr_num',
+                        'x_id', 'x_age_model_ind', 'x_var', 'y_id',
+                        'y_age_model_ind', 'y_var', 'LibSize', 'ind_i',
+                        'relation', 'forcing', 'responding',
+                    ]:
+                        if col not in df.columns:
+                            df[col] = self.grp_config.get_trait_value(col)
                 return pl.from_pandas(df).lazy()
             return None
 
@@ -1723,7 +1739,10 @@ class OutputCollection:
                     combined = pl.concat(lazy_tables, how='diagonal_relaxed')
                 self.table = Output(combined, outtype=outtype, tmp_dir=self.tmp_path)
 
-        self.relationships = Relationship(self.grp_config.var_x, self.grp_config.var_y) if self.grp_config is not None else None
+        if isinstance(self.grp_config, RunConfig):
+            self.relationships = Relationship(self.grp_config.var_x, self.grp_config.var_y)
+        elif self.grp_config is not None:
+            self.set_relationships(relationship=self.grp_config.relationship)
 
     @classmethod
     def from_legacy(cls, legacy_obj, grp_specs=None, tmp_dir=None):
@@ -1800,10 +1819,14 @@ class OutputCollection:
         if self.relationships is None and self.grp_config is not None:
             self.relationships = Relationship(self.grp_config.var_x, self.grp_config.var_y)
 
-        if self.r1 is None and self.relationships is not None:
-            self.r1 = RelationshipSide('r1', relationship=self.relationships)
-        if self.r2 is None and self.relationships is not None:
-            self.r2 = RelationshipSide('r2', relationship=self.relationships)
+        if isinstance(self.relationships, Relationship):
+            if self.r1 is None:
+                self.r1 = RelationshipSide('r1', relationship=self.relationships)
+            if self.r2 is None:
+                self.r2 = RelationshipSide('r2', relationship=self.relationships)
+        elif self.relationships is not None and self.r1 is None:
+            # A supplied directed relationship is itself the only active side.
+            self.r1 = self.relationships
 
         for out_attr in ['table', 'libsize_aggregated', 'active_stats', 'active_full', 'delta_rho_stats', 'delta_rho_full']:
             out = getattr(self, out_attr)
@@ -1819,12 +1842,15 @@ class OutputCollection:
 
     # note: the default output_convention was 'influence' prior to may 29, 2026
     def set_relationships(self, influence_word="causes", operation_word="reconstructs", output_convention="operation", pres_convention="influence",
-        convention_mapping=None):
-        """(Re)build ``self.relationships``/``self.r1``/``self.r2`` from ``self.grp_config``, with given wording/conventions.
+        convention_mapping=None, relationship=None):
+        """Set an explicit directed relationship or build CedarKit's two-sided one.
 
-        Unlike the ``relationships`` assignment in ``__init__``, this is the
-        method that also (re)builds ``r1``/``r2`` to match. Sets all three
-        to ``None`` if ``self.grp_config`` is ``None``.
+        With ``relationship=None``, this retains CedarKit's existing behavior:
+        construct a bidirectional :class:`Relationship` from ``self.grp_config``
+        and its ``r1``/``r2`` sides.  With a supplied directed relationship,
+        ``relationships`` and ``r1`` reference that object and ``r2`` is
+        ``None``.  A supplied relationship must expose ``r`` and ``r_calc``;
+        metric calculation additionally uses ``participant_variables``.
 
         Parameters
         ----------
@@ -1838,7 +1864,17 @@ class OutputCollection:
             Presentation-output sentence form. Default is ``"influence"``.
         convention_mapping : dict, optional
             Optional word remapping. Default is ``None``.
+        relationship : object, optional
+            Explicit directed relationship, such as GraphCCM's
+            ``Relationship``. Default is ``None``.
         """
+        if relationship is not None:
+            if not hasattr(relationship, "r") or not hasattr(relationship, "r_calc"):
+                raise TypeError("A supplied relationship must expose r and r_calc.")
+            self.relationships = relationship
+            self.r1 = relationship
+            self.r2 = None
+            return
         self.relationships = Relationship(self.grp_config.var_x, self.grp_config.var_y,
                                           operation_word=operation_word, output_convention=output_convention,
                                           pres_convention=pres_convention, convention_mapping=convention_mapping) if self.grp_config is not None else None
@@ -1848,7 +1884,7 @@ class OutputCollection:
                                           pres_convention=pres_convention, convention_mapping=convention_mapping) if self.relationships is not None else None
 
     def get_relationship(self, relationship_id='r1', output_convention="operation"):
-        """Return ``self.r1``/``self.r2``, building them via :meth:`set_relationships` first if needed.
+        """Return an active relationship side, building CedarKit sides if needed.
 
         This is the safe way to access ``r1``/``r2`` — unlike reading
         ``self.r1``/``self.r2`` directly, it builds them on demand if
@@ -1857,25 +1893,29 @@ class OutputCollection:
         Parameters
         ----------
         relationship_id : {'r1', 'r2'}, optional
-            Which side to return. Default is ``'r1'``.
+            Which side to return. A supplied directed relationship exposes only
+            ``'r1'``. Default is ``'r1'``.
         output_convention : str, optional
             Passed to :meth:`set_relationships` if it needs to be called.
             Default is ``"operation"``.
 
         Returns
         -------
-        RelationshipSide
+        RelationshipSide or directed relationship
 
         Raises
         ------
         ValueError
-            If ``relationship_id`` is not ``'r1'`` or ``'r2'``.
+            If ``relationship_id`` is unsupported or requests ``'r2'`` from a
+            directed relationship.
         """
         if self.relationships is None:
             self.set_relationships(output_convention=output_convention)
         if relationship_id == 'r1':
             return self.r1
         if relationship_id == 'r2':
+            if self.r2 is None:
+                raise ValueError("A supplied directed relationship has no r2 side.")
             return self.r2
         raise ValueError(f"Unsupported relationship_id '{relationship_id}'. Use 'r1' or 'r2'.")
 
@@ -1981,10 +2021,9 @@ class OutputCollection:
            on them already being populated (see the caveat in
            :meth:`__init__`'s docstring about whether that's guaranteed).
 
-        If ``relationship_id`` is ``None``, both ``r1`` and ``r2`` are
-        processed, with each side's failure caught and printed rather than
-        propagated (so one side failing doesn't prevent the other from
-        being computed).
+        If ``relationship_id`` is ``None``, CedarKit's two-sided relationship
+        processes both sides. A supplied directed relationship processes only
+        ``r1``. Each attempted side's failure is caught and printed.
 
         Parameters
         ----------
@@ -2000,14 +2039,12 @@ class OutputCollection:
         """
         self.delta_rho_stats.get_table()
         if relationship_id is None:
-            try:
-                self._calc_metrics('r1', lag=lag, smoothing_window=smoothing_window)
-            except Exception as e:
-                print(f'Error calculating metrics for r1: {e}')
-            try:
-                self._calc_metrics('r2', lag=lag, smoothing_window=smoothing_window)
-            except Exception as e:
-                print(f'Error calculating metrics for r2: {e}')
+            relationship_ids = ('r1',) if self.r2 is None else ('r1', 'r2')
+            for active_relationship_id in relationship_ids:
+                try:
+                    self._calc_metrics(active_relationship_id, lag=lag, smoothing_window=smoothing_window)
+                except Exception as e:
+                    print(f'Error calculating metrics for {active_relationship_id}: {e}')
         else:
             self._calc_metrics(relationship_id=relationship_id, lag=lag, smoothing_window=smoothing_window)
         self.delta_rho_stats.clear_table()
@@ -2388,8 +2425,8 @@ class OutputCollection:
         Step used by :meth:`set_target_lag` (see :meth:`calc_metrics` for
         the full pipeline). Loads ``self.delta_rho_stats``; if it has no
         surrogate rows, returns ``lag_df`` unchanged (with a count of
-        ``0`` rather than testing). Otherwise, for each of
-        ``self.relationships.var_x``/``var_y`` in turn: counts how many
+        ``0`` rather than testing). Otherwise, for each participating
+        variable in turn: counts how many
         surrogate runs of that variable outperform each candidate lag's
         ``{y_col}_mean``, recording ``surr_outperformer_count``/
         ``surr_outperformer_frac``/``surr_count`` per lag and surrogate
@@ -2410,7 +2447,7 @@ class OutputCollection:
         -------
         pandas.DataFrame
             ``lag_df`` duplicated once per surrogate variable
-            (``var_x``/``var_y``), each copy's rows annotated with that
+            (the CedarKit pair or GraphCCM directed pair), each copy's rows annotated with that
             variable's outperformance counts/fractions. Also stored as
             ``self.viable_lags``.
         """
@@ -2453,8 +2490,23 @@ class OutputCollection:
         # print('surrogate performance data frame for testing:')
         # print(gb_surr_df.head())
 
+        if isinstance(self.relationships, Relationship):
+            surrogate_variables = [self.relationships.var_x, self.relationships.var_y]
+        else:
+            # GraphCM persists the configured generic surrogate prefix (for
+            # example ``d18O``), not its variable ID. Those are the values in
+            # the output table and therefore the only valid filter keys here.
+            surrogate_variables = sorted(
+                value for value in gb_surr_df["surr_var"].dropna().unique()
+                if value != "neither"
+            )
+            if not surrogate_variables:
+                raise NotImplementedError(
+                    "GraphCM lag metrics require at least one surrogate variable in the output."
+                )
+
         lag_performance_surr_tests = []
-        for surr_var in [self.relationships.var_x, self.relationships.var_y]:
+        for surr_var in surrogate_variables:
             lag_df__surr_test = lag_df.copy()
             lag_df__surr_test['surr_var'] = surr_var
             surr_rx_df = gb_surr_df[(gb_surr_df['relation'] == relationship) & (gb_surr_df['surr_var'] == surr_var)]
@@ -2621,17 +2673,26 @@ class OutputCollection:
             return None
 
         target_lag_row = target_lag_info.iloc[0]
+        if isinstance(self.relationships, Relationship):
+            surrogate_variables = [self.relationships.var_x, self.relationships.var_y]
+        else:
+            surrogate_variables = list(getattr(self.relationships, "participant_variables", ()))
+            if len(surrogate_variables) != 2:
+                raise NotImplementedError(
+                    "CedarKit lag metrics currently require exactly two directed participants."
+                )
+
         target_lag_by_surr = (
             target_lag_info
             .drop_duplicates(subset='surr_var')
             .set_index('surr_var')
-            .reindex([self.relationships.var_x, self.relationships.var_y])
+            .reindex(surrogate_variables)
         )
 
-        surr_rx_count = target_lag_by_surr.loc[self.relationships.var_x, 'surr_count']
-        surr_rx_df_outperformers_count = target_lag_by_surr.loc[self.relationships.var_x, 'surr_outperformer_count']
-        surr_ry_count = target_lag_by_surr.loc[self.relationships.var_y, 'surr_count']
-        surr_ry_df_outperformers_count = target_lag_by_surr.loc[self.relationships.var_y, 'surr_outperformer_count']
+        surr_rx_count = target_lag_by_surr.loc[surrogate_variables[0], 'surr_count']
+        surr_rx_df_outperformers_count = target_lag_by_surr.loc[surrogate_variables[0], 'surr_outperformer_count']
+        surr_ry_count = target_lag_by_surr.loc[surrogate_variables[1], 'surr_count']
+        surr_ry_df_outperformers_count = target_lag_by_surr.loc[surrogate_variables[1], 'surr_outperformer_count']
 
         target_relationship = self.r1 if relationship_id == 'r1' else self.r2
 
@@ -2738,9 +2799,25 @@ class OutputCollection:
         elif not isinstance(full, pl.DataFrame):
             raise TypeError(f"Unsupported full table type: {type(full)}")
 
-        group_traits_below = self.grp_config.trait_hierarchy(full, 'LibSize', level="below", threshold=0.8, include_ids=True)
-        calc_grp_cols = [col for col in full.columns if col in self.grp_config.traits and (
-                         col not in group_traits_below)]
+        if isinstance(self.grp_config, RunConfig):
+            group_traits_below = self.grp_config.trait_hierarchy(
+                full, 'LibSize', level="below", threshold=0.8, include_ids=True
+            )
+            calc_grp_cols = [
+                col for col in full.columns
+                if col in self.grp_config.traits and col not in group_traits_below
+            ]
+        else:
+            graph_traits = set(getattr(self.grp_config, 'traits', ()))
+            calc_grp_cols = [
+                col for col in full.columns
+                if col in graph_traits
+                and col not in {'run_config_id', 'run_set_id', 'draw_id', 'draw_size'}
+                and full.get_column(col).null_count() < full.height
+            ]
+            for col in ('relation', 'metric', 'metric_mask_id'):
+                if col in full.columns and col not in calc_grp_cols:
+                    calc_grp_cols.append(col)
 
         if 'relation' in full.columns:
             if 'relation' not in calc_grp_cols:
@@ -2773,17 +2850,16 @@ class OutputCollection:
         return self
 
     def aggregate_libsize(self, query_config=None): #process_group_table
-        """Average numeric columns across runs, grouped by a fixed set of trait columns above the ``knn`` libsize threshold.
+        """Average numeric columns across draws above the ``knn`` threshold.
 
         Resolves ``knn`` from ``query_config`` (if given) or
         ``self.grp_config``; no-ops (returns ``self`` unchanged) if `knn`
         can't be resolved, if `self.table` has no ``LibSize`` column, or if
-        no rows have ``LibSize > knn + 1``. Otherwise groups the remaining
-        rows by a fixed list of trait columns (``E``, ``tau``, ``Tp``,
-        ``lag``, ``knn``, ``surr_var``, ``surr_num``, id/age-model/var
-        columns for both variables, ``LibSize``, ``ind_i``, ``relation``,
-        ``forcing``, ``responding``) and averages every other numeric,
-        non-id/ind column within each group.
+        no rows have ``LibSize > knn + 1``. CedarKit ``RunConfig`` retains
+        its legacy literal grouping. A GraphCM configuration derives grouping
+        columns from its declared traits, while excluding exact run/draw IDs
+        so numeric values are averaged across draws. Both paths retain
+        ``LibSize`` and ``relation`` when present.
 
         Parameters
         ----------
@@ -2827,14 +2903,29 @@ class OutputCollection:
         if group_table.height == 0:
             return self
 
-        calc_grp_cols = ['E', 'tau', 'Tp', 'lag', 'knn', 'surr_var', 'surr_num', 'x_id', 'x_age_model_ind', 'x_var', 'y_id', 'y_age_model_ind', 'y_var', 'LibSize', 'ind_i', 'relation', 'forcing', 'responding']
+        if isinstance(self.grp_config, RunConfig):
+            calc_grp_cols = [
+                'E', 'tau', 'Tp', 'lag', 'knn', 'surr_var', 'surr_num',
+                'x_id', 'x_age_model_ind', 'x_var', 'y_id',
+                'y_age_model_ind', 'y_var', 'LibSize', 'ind_i',
+                'relation', 'forcing', 'responding',
+            ]
+        else:
+            graph_traits = set(getattr(self.grp_config, 'traits', ()))
+            calc_grp_cols = [
+                col for col in full.columns
+                if col in graph_traits and col not in {'run_config_id', 'run_set_id', 'draw_id'}
+                and full.get_column(col).null_count() < full.height
+            ]
+            for col in ('relation', 'metric', 'metric_mask_id'):
+                if col in full.columns and col not in calc_grp_cols:
+                    calc_grp_cols.append(col)
 
-        if "LibSize" in full.columns:
-            if "LibSize" not in calc_grp_cols:
-                calc_grp_cols.append("LibSize")
-        if 'relation' in full.columns:
-            if 'relation' not in calc_grp_cols:
-                calc_grp_cols.append('relation')
+        if "LibSize" in full.columns and "LibSize" not in calc_grp_cols:
+            calc_grp_cols.append("LibSize")
+        if 'relation' in full.columns and 'relation' not in calc_grp_cols:
+            calc_grp_cols.append('relation')
+        calc_grp_cols = [col for col in calc_grp_cols if col in full.columns]
 
         aggregated_cols = [
             col for col, dtype in full.schema.items()
@@ -3200,6 +3291,7 @@ class CCMConfig(CMConfigBase):
         self.file_name = self.get_filename(config)
 
         self.df = None
+        # @TODO check weighting specs
         self.weighted = grp_specs['weighted'] if 'weighted' in grp_specs.keys() else False
         self.self_predict = grp_specs['self_predict'] if 'self_predict' in grp_specs.keys() else False
         self.overwrite = None
