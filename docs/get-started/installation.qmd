@@ -1,0 +1,37 @@
+---
+title: Installation
+sidebar: get-started
+---
+
+## Requirements
+
+CedarKit requires Python ≥ 3.13.
+
+## Install from PyPI
+
+```bash
+pip install cedarkit
+```
+
+## Install from source
+
+```bash
+git clone https://github.com/jordanplanders/cedar_util.git
+cd cedar_util
+pip install -e .
+```
+
+## Conda environment (recommended)
+
+A pre-configured environment file is provided in `.binder/environment.yml`:
+
+```bash
+conda env create -f .binder/environment.yml
+conda activate cedar_env
+```
+
+## Verify the installation
+
+```python
+import cedarkit
+```

@@ -1,0 +1,22 @@
+name: cedar_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.13
+  - jupyterlab
+  - ipykernel
+  - pip
+  - pip:
+    - setuptools
+    - pandas
+    - scipy
+    - matplotlib
+    - seaborn
+    - PyYAML
+    - cloudpickle
+    - joblib
+    - pyleoclim
+    - pyEDM
+    - polars
+    - pyarrow

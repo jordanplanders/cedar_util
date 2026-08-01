@@ -1,0 +1,21 @@
+---
+title: "CedarKit"
+subtitle: "CCM–EDM Data Analysis Routines: supporting tools for CCM/EDM workflows, data structures, configuration parsing, and HPC pipelines."
+sidebar: CedarKit
+---
+
+CCM–EDM Data Analysis Routines: supporting tools for CCM/EDM workflows, data structures, configuration parsing, and HPC pipelines.
+
+## Quick install
+
+```bash
+pip install git+https://github.com/jordanplanders/cedar_util.git
+```
+
+## Where to go next
+
+| | |
+|---|---|
+| [Get Started](get-started/installation.qmd) | Install the package and run your first example |
+| [Tutorials](tutorials/index.qmd) | Worked examples |
+| [Reference](api/index.qmd) | Full API documentation for every class and function |

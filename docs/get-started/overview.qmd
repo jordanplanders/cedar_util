@@ -1,0 +1,8 @@
+---
+title: About CedarKit
+sidebar: get-started
+---
+
+CCM–EDM Data Analysis Routines: supporting tools for CCM/EDM workflows, data structures, configuration parsing, and HPC pipelines.
+
+Replace this page with an overview of your package's motivation and scope.
