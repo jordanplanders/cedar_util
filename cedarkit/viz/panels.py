@@ -133,7 +133,41 @@ class BasePlot:
 
         raise TypeError(f"Unsupported output type: {type(output)}")
 
-    def pull_df(self, outputgrp, output_type, output_scope, columns=None, relation_cats=None, relation_convention="pres"):
+    def pull_df(self, outputgrp, output_type, output_scope, columns=None, relation_cats=None,
+                relation_convention="pres", comparison_labels=None):
+        if isinstance(outputgrp, (list, tuple)):
+            if comparison_labels is not None and len(comparison_labels) != len(outputgrp):
+                raise ValueError("comparison_labels must match the number of output collections.")
+            frames = []
+            child_columns = None if columns is None else [
+                column for column in columns if column != "comparison_label"
+            ]
+            for index, collection in enumerate(outputgrp):
+                frame = self.pull_df(
+                    collection,
+                    output_type,
+                    output_scope,
+                    columns=child_columns,
+                    relation_cats=relation_cats,
+                    relation_convention=relation_convention,
+                )
+                if frame is None:
+                    raise ValueError(
+                        f"Collection at index {index} has no {output_type!r} output for scope {output_scope!r}."
+                    )
+                if comparison_labels is not None:
+                    frame["comparison_label"] = comparison_labels[index]
+                frames.append(frame)
+            if not frames:
+                return pd.DataFrame(columns=columns)
+            combined = pd.concat(frames, ignore_index=True, sort=False)
+            if columns is not None:
+                missing_columns = [column for column in columns if column not in combined.columns]
+                if missing_columns:
+                    raise ValueError(f"Combined plotting data is missing columns {missing_columns}.")
+                combined = combined.loc[:, columns]
+            return combined
+
         output_obj = None
         if output_type == 'delta_rho_stats':
             outputgrp.delta_rho_stats.get_table()
@@ -159,10 +193,7 @@ class BasePlot:
             elif output_type == 'libsize_aggregated':
                 columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau']
 
-        print(f"Pulling columns {columns} from output type '{output_type}' with scope '{output_scope}'", type(output_obj._full))
         if isinstance(output_obj._full, pa.Table):
-            print(len(output_obj._full) if output_obj._full is not None else 'output is None')
-
             schema_names = output_obj._full.schema.names
         else:
             schema_names = output_obj._full.collect_schema().names()
@@ -242,6 +273,10 @@ class BasePlot:
                 )
             # Candidate to modularize later if this relation-column normalization pattern repeats elsewhere.
             df["relation"] = df["relation"].map(lambda value: relation_mapping.get(value, value))
+            if isinstance(self.palette, dict):
+                for source_label, presentation_label in relation_mapping.items():
+                    if source_label in self.palette and presentation_label not in self.palette:
+                        self.palette[presentation_label] = self.palette[source_label]
 
         return df
 
@@ -437,7 +472,7 @@ class LibSizeRhoPlot(BasePlot):
         else:
             schema_names = outputgrp.libsize_aggregated._full.collect_schema().names()
 
-        if 'relation_0' not in schema_names:
+        if 'relation' not in schema_names:
             x_name, y_name = self.resolve_xy_names(outputgrp)
             outputgrp.libsize_aggregated._full = add_relation_s_inferred(
                 outputgrp.libsize_aggregated._full,
@@ -829,7 +864,56 @@ class LagPlot(BasePlot):
         #         for surr_var, surr_var_df in df.groupby('surr_var'):
         #             self.annotations.append(f"{surr_var}: n={surr_var_df['surr_num'].nunique()}")
 
-    def make_classic_lag_plot(self, outputgrp, stats_only=True, scatter=True, boxplot=False, surr_lines=False, relation_scope=None):
+    def make_classic_lag_plot(self, outputgrp, stats_only=True, scatter=True, boxplot=False, surr_lines=False,
+                              relation_scope=None, comparison_labels=None, hue='relation'):
+
+        if isinstance(outputgrp, (list, tuple)):
+            plot_columns = list(dict.fromkeys([
+                self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'comparison_label'
+            ]))
+            real_lag_df = self.pull_df(
+                outputgrp,
+                'delta_rho_stats',
+                'real',
+                columns=plot_columns,
+                relation_cats=relation_scope,
+                comparison_labels=comparison_labels,
+            )
+            if not real_lag_df.empty:
+                if hue == 'comparison_label':
+                    comparison_values = set(real_lag_df['comparison_label'].dropna())
+                    if not isinstance(self.palette, dict) or not comparison_values.issubset(self.palette):
+                        self.palette = None
+                self.add_line(real_lag_df, hue=hue, units=None)
+
+            if scatter or boxplot:
+                use_full = (
+                    stats_only is False
+                    and all(getattr(collection, 'delta_rho_full', None) is not None for collection in outputgrp)
+                )
+                surrogate_output_type = 'delta_rho_full' if use_full else 'delta_rho_stats'
+                surrogate_df = self.pull_df(
+                    outputgrp,
+                    surrogate_output_type,
+                    'surrogate',
+                    columns=plot_columns,
+                    relation_cats=relation_scope,
+                    comparison_labels=comparison_labels,
+                )
+                if hue == 'comparison_label' and not surrogate_df.empty:
+                    comparison_values = set(surrogate_df['comparison_label'].dropna())
+                    if not isinstance(self.palette, dict) or not comparison_values.issubset(self.palette):
+                        self.palette = None
+                if scatter and not surrogate_df.empty:
+                    self.add_scatter(surrogate_df, hue=hue)
+                if boxplot and not surrogate_df.empty:
+                    box_df = surrogate_df.copy()
+                    box_df['lag'] = box_df['lag'].astype(int)
+                    lags = np.sort(box_df['lag'].unique())
+                    if len(lags) > 1:
+                        box_df = box_df[box_df['lag'].isin(lags[::4])]
+                    self.add_boxplot(box_df, hue=hue)
+            return self.ax
 
         # if outputgrp.delta_rho_stats is None:
         #     outputgrp.calc_delta_rho(stats_out=True)
