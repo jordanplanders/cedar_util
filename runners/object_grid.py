@@ -233,7 +233,23 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
         - GridCell: to encapsulate the results for the grid cell corresponding to (E, tau).
     '''
 
-    print(f'Processing E={grp_info["E"]}, tau={grp_info["tau"]}', output_location , file=sys.stdout, flush=True)
+    def get_gridcell_params(keys, grp_info):
+        _tag = '_'.join([f"{keys[ik]}{grp_info.get(keys[ik])}" for ik in range(len(keys))])
+        _param_specs = ' ,'.join([f"{keys[ik]}={grp_info.get(keys[ik])}" for ik in range(len(keys))])
+        _output_path_params = ({grp_info.get(keys[ik])} for ik in range(len(keys)))
+        return _tag, _param_specs, _output_path_params
+
+    # e_val = grp_info.get("E")
+    # tau_val = grp_info.get("tau")
+    # output_file_tag = f"E{e_val}_tau{tau_val}"
+    # param_specs = f"E={e_val}, tau={tau_val}"
+    # output_path_params = (e_val, tau_val)
+
+    output_file_tag, param_specs, output_path_params = get_gridcell_params(param_specs, grp_info)
+
+    default_parquet_subfile_name_pattern = 'E{E}_tau{tau}_lag{lag}'
+
+    print(f'Processing {param_specs}', output_location , file=sys.stdout, flush=True)
 
     test_grp = DataGroup(grp_info, tmp_dir=tmp_dir)
     print('\tgetting files', file=sys.stdout, flush=True)
@@ -288,10 +304,10 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
                                discovery_fn=discovery_fn, row_query_fn=row_query_fn)
         else:
             test_grp.get_files(config, output_location,
-                               file_name_pattern='E{E}_tau{tau}_lag{lag}', source='parquet')
+                               file_name_pattern=default_parquet_subfile_name_pattern, source='parquet')
 
         # print(f'\tfound {len(test_grp.file_list)} files for E={grp_info["E"]}, tau={grp_info["tau"]}', file=sys.stdout, flush=True)
-        log_line(logger, f'\tfound {len(test_grp.file_list)} files for E={grp_info["E"]}, tau={grp_info["tau"]}',
+        log_line(logger, f'\tfound {len(test_grp.file_list)} files for {param_specs}',
                  indent=0,
                  log_type="debug")
 
@@ -339,9 +355,6 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
             new_output_col.libsize_aggregated = computed_output_col.libsize_aggregated
 
 
-    e_val = grp_info.get("E")
-    tau_val = grp_info.get("tau")
-    et_tag = f"E{e_val}_tau{tau_val}"
     df = pd.DataFrame(columns=["surr_var", "surr_num_count_distinct"])
     write_status = {
         "delta_rho_stats": "not_requested",
@@ -350,19 +363,19 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
     }
 
     if aggregate_libsize_table is False:
-        libsize_aggregated_path = _get_output_path((e_val, tau_val),tmp_dir,  "libsize_aggregated", output_obj=existing_output)
-        if libsize_aggregated_path is not None and et_tag in str(
+        libsize_aggregated_path = _get_output_path(output_path_params,tmp_dir,  "libsize_aggregated", output_obj=existing_output)
+        if libsize_aggregated_path is not None and output_file_tag in str(
                 libsize_aggregated_path) and new_output_col.libsize_aggregated is not None:
             new_output_col.libsize_aggregated.path = libsize_aggregated_path
 
     if calc_delta_rho_table is False:
-        delta_rho_path = _get_output_path((e_val, tau_val),tmp_dir,  "delta_rho_stats", output_obj=existing_output)
-        if delta_rho_path is not None and et_tag in str(delta_rho_path) and new_output_col.delta_rho_stats is not None:
+        delta_rho_path = _get_output_path(output_path_params,tmp_dir,  "delta_rho_stats", output_obj=existing_output)
+        if delta_rho_path is not None and output_file_tag in str(delta_rho_path) and new_output_col.delta_rho_stats is not None:
             new_output_col.delta_rho_stats.path = delta_rho_path
 
     if calc_delta_rho_full is False:
-        delta_rho_path_full = _get_output_path((e_val, tau_val),tmp_dir,  "delta_rho_full", output_obj=existing_output)
-        if delta_rho_path_full is not None and et_tag in str(
+        delta_rho_path_full = _get_output_path(output_path_params,tmp_dir,  "delta_rho_full", output_obj=existing_output)
+        if delta_rho_path_full is not None and output_file_tag in str(
                 delta_rho_path_full) and new_output_col.delta_rho_full is not None:
             new_output_col.delta_rho_full.path = delta_rho_path_full
 
@@ -380,28 +393,28 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
                 smoothing_window=smoothing_window,
                 relationship_id=metric_relationship,
             )
-            log_line(logger, f"calc_metrics completed for E={e_val}, tau={tau_val}", indent=0, log_type="info")
+            log_line(logger, f"calc_metrics completed for {param_specs}", indent=0, log_type="info")
         except Exception as e:
-            log_line(logger, f"calc_metrics failed for E={e_val}, tau={tau_val}: {e}", indent=0, log_type="warning")
+            log_line(logger, f"calc_metrics failed for {param_specs}: {e}", indent=0, log_type="warning")
 
     if aggregate_libsize_table is True and new_output_col.libsize_aggregated is not None:
         try:
             gb = new_output_col.libsize_aggregated.surrogate.group_by(["surr_var"]).aggregate([("surr_num", "count_distinct")])
             df = gb.to_pandas()
         except Exception as e:
-            log_line(logger, f"Unable to build annotations from libsize_aggregated for E={e_val}, tau={tau_val}: {e}",
+            log_line(logger, f"Unable to build annotations from libsize_aggregated for {param_specs}: {e}",
                      indent=0, log_type="warning")
 
     if calc_delta_rho_table is True:
         write_status["delta_rho_stats"] = "skipped_missing_object"
         if new_output_col.delta_rho_stats is not None:
             try:
-                new_output_col.delta_rho_stats.write_table(tag=f"E{e_val}_tau{tau_val}__delta_rho_stats")
+                new_output_col.delta_rho_stats.write_table(tag=f"{output_file_tag}__delta_rho_stats")
                 write_status["delta_rho_stats"] = "written"
                 log_line(logger, '\twriting delta rho stats table', indent=0, log_type="info")
             except Exception as e:
                 write_status["delta_rho_stats"] = f"failed: {type(e).__name__}"
-                log_line(logger, f"Failed writing delta rho stats for E={e_val}, tau={tau_val}: {e}",
+                log_line(logger, f"Failed writing delta rho stats for {param_specs}: {e}",
                          indent=0, log_type="error")
 
     if calc_delta_rho_full is True:
@@ -421,43 +434,43 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
                     pre_rows = len(full_obj._full)
                 else:
                     pre_rows = 0 if full_obj._full is None else 0
-                log_line(logger, f"delta_rho_full pre-write rows for E={e_val}, tau={tau_val}: {pre_rows}",
+                log_line(logger, f"delta_rho_full pre-write rows for {param_specs}: {pre_rows}",
                          indent=0, log_type="info")
             except Exception as e:
                 write_status["delta_rho_full"] = f"failed_precheck: {type(e).__name__}"
-                log_line(logger, f"Failed pre-check for delta_rho_full E={e_val}, tau={tau_val}: {e}",
+                log_line(logger, f"Failed pre-check for delta_rho_full {param_specs}: {e}",
                          indent=0, log_type="error")
 
         if full_obj is not None and pre_rows > 0:
             try:
-                full_obj.write_table(tag=f"E{e_val}_tau{tau_val}__delta_rho_full")
+                full_obj.write_table(tag=f"{output_file_tag}__delta_rho_full")
                 out_path = full_obj.path
                 if _path_exists(out_path):
                     write_status["delta_rho_full"] = "written"
                     log_line(logger, f"\twriting delta rho full table -> {out_path}", indent=0, log_type="info")
                 else:
                     write_status["delta_rho_full"] = "failed_file_missing_after_write"
-                    log_line(logger, f"delta_rho_full path missing after write for E={e_val}, tau={tau_val}: {out_path}",
+                    log_line(logger, f"delta_rho_full path missing after write for {param_specs}: {out_path}",
                              indent=0, log_type="error")
             except Exception as e:
                 write_status["delta_rho_full"] = f"failed: {type(e).__name__}"
-                log_line(logger, f"Failed writing delta rho full for E={e_val}, tau={tau_val}: {e}",
+                log_line(logger, f"Failed writing delta rho full for {param_specs}: {e}",
                          indent=0, log_type="error")
         elif full_obj is not None and pre_rows == 0 and "failed_precheck" not in write_status["delta_rho_full"]:
             write_status["delta_rho_full"] = "skipped_empty_table"
-            log_line(logger, f"Skipping delta_rho_full write for E={e_val}, tau={tau_val}: empty table",
+            log_line(logger, f"Skipping delta_rho_full write for {param_specs}: empty table",
                      indent=0, log_type="warning")
 
     if aggregate_libsize_table is True:
         write_status["libsize_aggregated"] = "skipped_missing_object"
         if new_output_col.libsize_aggregated is not None:
             try:
-                new_output_col.libsize_aggregated.write_table(tag=f"E{e_val}_tau{tau_val}__libsize_aggregated")
+                new_output_col.libsize_aggregated.write_table(tag=f"{output_file_tag}__libsize_aggregated")
                 write_status["libsize_aggregated"] = "written"
                 log_line(logger, '\twriting libsize aggregated table', indent=0, log_type="info")
             except Exception as e:
                 write_status["libsize_aggregated"] = f"failed: {type(e).__name__}"
-                log_line(logger, f"Failed writing libsize_aggregated for E={e_val}, tau={tau_val}: {e}",
+                log_line(logger, f"Failed writing libsize_aggregated for {param_specs}: {e}",
                          indent=0, log_type="error")
 
     # print('\tclearing tables', file=sys.stdout, flush=True)
@@ -496,6 +509,7 @@ if __name__ == "__main__":
     setup_logging()
 
     parser = get_parser()
+    # parser.add_argument("--collector-path", dest="collector_path", default=None)
     args = parser.parse_args()
 
 
@@ -543,6 +557,8 @@ if __name__ == "__main__":
             calc_delta_rho_table_full = True
         print(args.flags, file=sys.stdout, flush=True)
 
+    override_flag = args.override
+
     calc_location = set_calc_path(args, proj_dir, config)
     log_line(logger, f'Calculation location: {calc_location}', indent=0, log_type="info")
     # print(f'Calculation location: {calc_location}', file=sys.stdout, flush=True)
@@ -562,9 +578,9 @@ if __name__ == "__main__":
     tmp_dir = proj_dir / tmp_dir
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    # this is hardcoded but should be released and left to the construction of the e_tau_grps_df
-    E_vals = [4, 5, 6, 7, 8, 9, 10]
-    tau_vals = [1, 2, 3, 4, 5, 6, 7, 8]
+    # @TODO this is hardcoded but should be released and left to the construction of the e_tau_grps_df
+    E_vals = [4, 5, 6, 7, 8, 9, 10, 11]
+    tau_vals = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     comb_df = e_tau_grps_df[e_tau_grps_df['E'].isin(E_vals) & e_tau_grps_df['tau'].isin(tau_vals)].copy()
     comb_plot_df = comb_df.drop_duplicates()
     comb_plot_df = comb_plot_df.sort_values(by=['col_var_id', 'target_var_id', 'E', 'tau'])
@@ -576,14 +592,17 @@ if __name__ == "__main__":
     # Build sqlite callables after row is available (collector path depends on dyad name)
     src_kwargs = {}
     if source == 'sqlite':
-        output_dir = set_output_path(args, calc_location, config)
-        _sqlite_dir, collector_path, _run_db_path = sqlite_paths(
-            proj_dir,
-            config,
-            calc_location=calc_location,
-            output_dir=output_dir,
-            ensure=False,
-        )
+        if args.collector_path:
+            collector_path = Path(args.collector_path)
+        else:
+            output_dir = set_output_path(args, calc_location, config)
+            _sqlite_dir, collector_path, _run_db_path = sqlite_paths(
+                proj_dir,
+                config,
+                calc_location=calc_location,
+                output_dir=output_dir,
+                ensure=False,
+            )
         log_line(logger, f'sqlite collector: {collector_path}', indent=0, log_type="info")
 
         col_var_name = str(row.get("col_var") or getattr(getattr(config, "col", None), "var", "") or "")
@@ -723,7 +742,7 @@ if __name__ == "__main__":
     path_info = {key:value for key, value in path_info.items() if value is not None}
     print(path_info, file=sys.stdout, flush=True)
 
-    if not_in_grid is True or output_is_none is True:
+    if not_in_grid is True or output_is_none is True or override_flag is True:
         # print('regardless of flags, going the dual calculations', file=sys.stdout, flush=True)
         log_line(logger, 'regardless of flags, going the dual calculations', indent=0,
                  log_type="info")
