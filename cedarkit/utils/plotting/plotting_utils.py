@@ -55,6 +55,7 @@ def font_resizer(context='paper', multiplier=1.0):
 
         sns.set_context(rc=mpl.rcParams)
 
+
 def check_palette_syntax(palette, table, logger=None, default_color='gray'):
     """Align palette keys with relation strings found in plotting tables.
 
@@ -455,6 +456,7 @@ def isotope_ylabel(isotope):
         if key in isotope:
             isotope = isotope.replace(key, isotope_labels[key])
     return isotope
+
 
 def replace_latex_labels(label):
     if not isinstance(label, str):
