@@ -3455,18 +3455,18 @@ class CCMConfig(CMConfigBase):
         else:
             self.libsizes = np.arange(self.min_libsize, self.max_libsize + 1, self.libsize_step)
 
-    def set_col_ts(self, surr_num=None):
-        # DUPLICATE of CMConfigBase.set_col_ts (identical body, minus that one's
-        # `col_var_obj is None` guard, which is never relevant here since CCMConfig.__init__
-        # always resolves it first). Deletion candidate — see notes_core_todos.md.
-        if self.col_var_obj.ts_type == 'surr':
-            if (self.col_var_obj.surr_num is None) and (surr_num is not None):
-                self.col_var_obj.surr_num = surr_num
-
-        if self.col_var_obj.surr_num not in (0, None):
-            self.col_var_obj.get_surr(self.col_var_obj.surr_num)
-        else:
-            self.col_var_obj.get_real()
+    # def set_col_ts(self, surr_num=None):
+    #     # DUPLICATE of CMConfigBase.set_col_ts (identical body, minus that one's
+    #     # `col_var_obj is None` guard, which is never relevant here since CCMConfig.__init__
+    #     # always resolves it first). Deletion candidate — see notes_core_todos.md.
+    #     if self.col_var_obj.ts_type == 'surr':
+    #         if (self.col_var_obj.surr_num is None) and (surr_num is not None):
+    #             self.col_var_obj.surr_num = surr_num
+    #
+    #     if self.col_var_obj.surr_num not in (0, None):
+    #         self.col_var_obj.get_surr(self.col_var_obj.surr_num)
+    #     else:
+    #         self.col_var_obj.get_real()
 
     def set_target_ts(self, surr_num=None):
         # NOT a pure duplicate of CMConfigBase.set_target_ts — behaves differently when
