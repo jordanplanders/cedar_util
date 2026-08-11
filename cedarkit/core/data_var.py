@@ -11,9 +11,11 @@ disk and expose it as a ``pandas.DataFrame`` (``.ts``) or a
 from pathlib import Path
 import pandas as pd
 import numpy as np
-import pyleoclim as pyleo
+
 import sys
 import logging
+import re
+import unicodedata
 logger = logging.getLogger(__name__)
 # import cedarkit.utils.routing.paths
 
@@ -48,11 +50,12 @@ class DataVarConfig:
 
         Parameters
         ----------
-        config : cedarkit.core.project_config.ProjectConfig
+        config : cedarkit.core.project_config.ProjectConfig or None
             Project configuration. Must have a top-level attribute named
             ``var_id`` holding that variable's config block (with optional
             nested ``real_data_ts``/``surrogate_ts`` blocks), and a ``pal``
-            attribute holding the variable-id-to-color palette.
+            attribute holding the variable-id-to-color palette. When ``None``,
+            load the variable's project-level config from ``proj_dir``.
         var_id : str
             Key identifying this variable in ``config``.
         proj_dir : str or pathlib.Path
@@ -147,12 +150,23 @@ class DataVarConfig:
 
         Parameters
         ----------
-        config : cedarkit.core.project_config.ProjectConfig
-            Project configuration containing this variable's config block.
+        config : cedarkit.core.project_config.ProjectConfig or None
+            Project configuration containing this variable's config block. When
+            ``None``, load ``<proj_dir>/data_var_configs/<var_id>.yaml`` as a
+            single-variable project config and use the project's master data
+            directories instead of dyad routing.
         proj_dir : str or pathlib.Path
             Root directory of the project, used to resolve relative data paths.
         """
         self.proj_dir = proj_dir
+        using_master_config = config is None
+        if using_master_config:
+            if proj_dir is None:
+                raise ValueError("proj_dir is required when config is None.")
+            from cedarkit.core.project_config import load_config
+
+            config_path = Path(proj_dir) / 'data_var_configs' / f'{self.var_id}.yaml'
+            config = load_config(config_path)
         # try:
         #     var_yaml = config.get_dynamic_attr("data_vars.{var}", self.var_id)
         #     var_info = load_config(proj_dir / 'var_configs'/f'{var_yaml}.yaml')
@@ -163,12 +177,13 @@ class DataVarConfig:
         # except:
         # print(f'reading var yaml for {self.var_id} failed, trying config')
         # print(self.var_id)
+
         var_info = config.get_dynamic_attr("{var}", self.var_id)
         var_info = var_info.to_dict()
         # self.load_from_config(config, proj_dir)
 
         # set real data info
-        real_ts_d = var_info.pop('real_data_ts', None)
+        real_ts_d = var_info.pop('real_data_ts', {}) or {}
         # real_csv_stem
         if 'real_csv_stem' in var_info.keys():
             self.real_csv_stem = var_info.pop('real_csv_stem', None)
@@ -177,7 +192,18 @@ class DataVarConfig:
         elif 'data_csv' in var_info.keys():
             self.real_csv_stem = var_info.pop('data_csv', None)
         else:
-            print(f'No real_csv_stem found for {self.var_id}')
+            base_var = var_info.get('var') or self.var_id
+            stem_fields = [
+                var_info.get('author'), var_info.get('year'),
+                var_info.get('source'), var_info.get('obs_type'),
+            ]
+            if all(field not in (None, '') for field in stem_fields):
+                self.real_csv_stem = '_'.join([
+                    *(self._stem_token(field) for field in stem_fields),
+                    'decavg', self._stem_token(base_var),
+                ])
+            else:
+                self.real_csv_stem = f'{self.var_id}_decavg_{base_var}'
 
         # real_ts_var
         if 'real_ts_var' in var_info.keys():
@@ -187,7 +213,8 @@ class DataVarConfig:
         elif 'data_var' in var_info.keys():
             self.real_ts_var = var_info.pop('data_var', None)
         else:
-            print(f'No real_data_var found for {self.var_id}')
+            base_var = var_info.get('var') or self.var_id
+            self.real_ts_var = f'{self.var_id}_decavg_{base_var}'
 
         # real_ts_time
         if 'real_ts_time' in var_info.keys():
@@ -202,10 +229,13 @@ class DataVarConfig:
             self.real_ts_time = 'time'
 
         self.set_real_csv_name()
-        self.real_data_dir_path = self.set_data_source(config, data_source='data', data_type='real')
+        if using_master_config:
+            self.real_data_dir_path = Path(proj_dir) / 'master_data'
+        else:
+            self.real_data_dir_path = self.set_data_source(config, data_source='data', data_type='real')
         self.get_color(config)
 
-        surr_ts_d = var_info.pop('surrogate_ts', None)
+        surr_ts_d = var_info.pop('surrogate_ts', {}) or {}
         # print(var_info, surr_ts_d)
         #surr_csv_stem
         if 'surr_csv_stem' in var_info.keys():
@@ -237,7 +267,10 @@ class DataVarConfig:
 
         self.set_surr_csv_name()
         if self.surr_ts_csv is not None:
-            self.surr_data_dir_path = self.set_data_source(config, data_source='data', data_type='surr')
+            if using_master_config:
+                self.surr_data_dir_path = Path(proj_dir) / 'master_surrogates'
+            else:
+                self.surr_data_dir_path = self.set_data_source(config, data_source='data', data_type='surr')
 
         for key in var_info.keys():
             if hasattr(self, key):
@@ -260,7 +293,17 @@ class DataVarConfig:
 
     def set_real_csv_name(self):
         # Mutator: sets self.real_ts_csv from self.real_csv_stem. No return value.
-        self.real_ts_csv = self.real_csv_stem
+        if len(self.suffix) > 0:
+            self.real_ts_csv = '__'.join([self.real_csv_stem, self.suffix]).strip(
+                '__') if self.real_csv_stem is not None else None
+        else:
+            self.real_ts_csv = self.real_csv_stem
+
+    @staticmethod
+    def _stem_token(value):
+        """Convert metadata to a portable underscore-delimited filename token."""
+        normalized = unicodedata.normalize('NFKD', str(value)).encode('ascii', 'ignore').decode()
+        return re.sub(r'[^A-Za-z0-9]+', '_', normalized).strip('_')
 
     def set_data_source(self, config, data_source='data', var_data_csv=None, data_type='real'):
         """Resolve the directory containing this variable's data CSV.
@@ -345,7 +388,8 @@ class VarObject(DataVarConfig):
     avoid re-resolving it. See :meth:`__init__`.
     """
 
-    def __init__(self, config, var_id=None, proj_dir=None, data_var_config=None):
+    def __init__(self, config, var_id=None, proj_dir=None, data_var_config=None,
+                 suffix_label=None, suffix_ind=None):
         """Construct a ``VarObject``, either fresh or from an existing config.
 
         If ``data_var_config`` is given, its attributes (other than ``log``)
@@ -355,9 +399,10 @@ class VarObject(DataVarConfig):
 
         Parameters
         ----------
-        config : cedarkit.core.project_config.ProjectConfig
+        config : cedarkit.core.project_config.ProjectConfig or None
             Project configuration. Only used when ``data_var_config`` is
-            ``None``.
+            ``None``. When it is ``None``, the project-level variable config
+            is loaded from ``proj_dir``.
         var_id : str, optional
             Key identifying this variable in ``config``. Only used when
             ``data_var_config`` is ``None``.
@@ -366,6 +411,9 @@ class VarObject(DataVarConfig):
             is ``None``.
         data_var_config : DataVarConfig, optional
             An already-resolved config to copy instead of resolving a new one.
+        suffix_label, suffix_ind : str, optional
+            Components appended after ``'__'`` to the resolved real CSV and
+            real value-column names when constructing from a config.
         """
         if data_var_config is not None and isinstance(data_var_config, DataVarConfig):
             # Copy all attributes from the provided DataVarConfig
@@ -374,7 +422,8 @@ class VarObject(DataVarConfig):
                     setattr(self, key, value)
         else:
             # Initialize as a new DataVarConfig
-            super().__init__(config, var_id, proj_dir)
+            super().__init__(config, var_id, proj_dir,
+                             suffix_label=suffix_label, suffix_ind=suffix_ind)
 
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
@@ -401,6 +450,8 @@ class VarObject(DataVarConfig):
             ``self.time_unit`` is unset, and ``value_unit``/``value_name``/
             ``label`` taken from ``self.unit``/``self.var``/``self.var_name``.
         """
+        import pyleoclim as pyleo
+
         time_axis = np.abs(self.ts[self.time_var].values) # absolute time values for pyleo, imply direction via time_unit
         source_ps = pyleo.Series(time=time_axis, value=self.ts[self.col_name].values,
                                  time_unit=self.time_unit if self.time_unit is not None else 'yr BP', value_unit=self.unit, value_name=self.var,
