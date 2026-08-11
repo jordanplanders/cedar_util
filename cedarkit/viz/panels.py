@@ -399,7 +399,7 @@ class BasePlot:
         self.max_y = df[self.y_var].max() if self.max_y is None else max(self.max_y, df[self.y_var].max())
 
 
-    def _line(self, df, hue='relation', units='surr_num',  collect_legend=True, legend=False):
+    def _line(self, df, hue='relation', units='surr_num',  collect_legend=True, legend=False, linewidth=2, line_alpha=1):
         if units is not None:
             error_tuple=None
         else:
@@ -410,7 +410,7 @@ class BasePlot:
                      units=units,
                      hue=hue,
                      errorbar=error_tuple,
-                     palette=self.palette, ax=self.ax, legend=True)
+                     palette=self.palette, ax=self.ax, legend=True, linewidth=linewidth, alpha=line_alpha)
 
         return self.ax
 
@@ -568,6 +568,7 @@ class LagPlot(BasePlot):
         Adds line plots to the plot.
     make_lag_plot(output, scatter=False, surr_lines=False, stats_only=True)
         Creates the lag plot with options for scatter and surrogate lines.
+
     Attributes
     ----------
     top_val_color : str
@@ -833,8 +834,8 @@ class LagPlot(BasePlot):
         #                 x='lag', y=y_var, **{'s': 40, 'alpha': 1}, palette=palette, color='none', edgecolor="black",
         #                 linewidth=1.5)
 
-    def add_line(self, df, hue='relation', units=None,  collect_legend=True, legend=False):
-        self.ax = self._line(df, hue=hue, units=units, collect_legend=collect_legend, legend=legend)
+    def add_line(self, df, hue='relation', units=None,  collect_legend=True, legend=False, linewidth=2, line_alpha=1):
+        self.ax = self._line(df, hue=hue, units=units, collect_legend=collect_legend, legend=legend, linewidth=linewidth, line_alpha=line_alpha)
         self.update_y_extrema(df)
         self.handle_legend(collect_legend=collect_legend, legend=legend, element_type='line')
 
