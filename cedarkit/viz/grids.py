@@ -30,8 +30,11 @@ except ImportError:
 
 
 class GridCell:
-    def __init__(self, row, col, output=None):
+    def __init__(self, row, col, output=None, outputs=None):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+
+        if output is not None and outputs is not None:
+            raise ValueError("Pass either output or outputs, not both.")
 
         self.row = row
         self.col = col
@@ -40,11 +43,42 @@ class GridCell:
         self.col_labels=[]
         self.cell_labels=[]
         self.title_labels=[]
-        self.output = output
+        self._outputs = []
+        if outputs is not None:
+            self.outputs = outputs
+        elif output is not None:
+            self.output = output
         self.annotations = []
         self.y_lims = []
         annotations = []
         self.relationships = None
+
+    @property
+    def outputs(self):
+        """Ordered collection outputs held by this cell."""
+        return self._outputs
+
+    @outputs.setter
+    def outputs(self, value):
+        if value is None:
+            self._outputs = []
+            return
+        if isinstance(value, (str, bytes)):
+            raise TypeError("outputs must be an ordered collection, not a string.")
+        self._outputs = list(value)
+
+    @property
+    def output(self):
+        """Return the legacy singleton output, if the cell has exactly one."""
+        if len(self._outputs) == 0:
+            return None
+        if len(self._outputs) == 1:
+            return self._outputs[0]
+        raise ValueError("A multi-collection GridCell has no singular output; use outputs.")
+
+    @output.setter
+    def output(self, value):
+        self._outputs = [] if value is None else [value]
 
 class GridPlot:
     def __init__(self, nrows, ncols, width_ratios=None, height_ratios=None, grid_type='plot'):
@@ -214,6 +248,33 @@ class GridPlot:
             return text
         return replace_latex_labels(text)
 
+    def collect_plotted_ylims(self, axes):
+        """Flatten the current (lo, hi) y-limits of a set of axes into one list of bounds."""
+        values = []
+        for ax in axes:
+            if ax is None:
+                continue
+            lo, hi = ax.get_ylim()
+            values.append(lo)
+            values.append(hi)
+        return values
+
+    def unify_ylims(self, values, mode='centralize'):
+        """Resolve a pool of y-bound values into a single (ylims, yticks) pair."""
+        if len(values) == 0:
+            return None, None
+        if mode != 'centralize':
+            raise ValueError(f"Unknown unify_ylims mode: {mode!r}")
+
+        lo, hi = min(values), max(values)
+        if np.abs(hi - lo) > 1:
+            yticks = int_yticks_within_ylim(lo, hi)
+        else:
+            yticks = mpl.ticker.AutoLocator().tick_values(lo, hi)
+        span = yticks[1] - yticks[0]
+        ylims = (yticks[0] - span * 0.4, hi + span * 0.4)
+        return ylims, yticks
+
     def tidy_rows(self, add_hline=None, ylim_by='central', supylabels=None, keep_ylabels=False,
                   supylabel_offset=0.04, keep_titles=False, title_pad=10, rlabel_pad=10, llabel_pad=10, title_rows=[0], titley=1,
                   supylabel_target='first'):
@@ -232,22 +293,27 @@ class GridPlot:
         valid_xlims = self._validated_xlims()
 
         y_tick_list = []
+        row_ylims = {}
+
+        ylims_central = (min(self.ylims), max(self.ylims)) if self.ylims else (None, None)
         if ylim_by =='central':
-            ylims = (min(self.ylims), max(self.ylims)) if self.ylims else (None, None)
+            # ylims = (min(self.ylims), max(self.ylims)) if self.ylims else (None, None)
             central_ax = typed_axes[0]
-            central_ax.set_ylim(ylims)
+            central_ax.set_ylim(ylims_central)
             yticks = central_ax.get_yticks()
             delta_y = np.abs(yticks[1] - yticks[0]) if len(yticks) > 1 else 0
-            if ylims[0] is not None:
-                ylims = [ylims[0] - .25 * delta_y, ylims[1]]
+            if ylims_central[0] is not None:
+                ylims_central = [ylims_central[0] - .25 * delta_y, ylims_central[1]]
 
                 for ik in range(self.nrows):
                     row_keys = sorted([key for key in typed_keys if key[0] == ik], key=lambda x: (x[2], x[1]))
                     row_axes = [self.ax_grid.get(key, None) for key in row_keys if self.ax_grid.get(key, None) is not None]
                     for ax in row_axes:
-                        ax.set_ylim(ylims)
+                        ax.set_ylim(ylims_central)
 
+                    row_ylims[ik] = ylims_central
                     y_tick_list.append(yticks)
+            ylims = ylims_central
 
         elif ylim_by == 'cell':
             # for ik, subfig in enumerate(self.subfigs):
@@ -272,10 +338,12 @@ class GridPlot:
                 else:
                     row_subfigs = [row_entry]
 
+            # y axis label
             ylabel = isotope_ylabel(row_axes[0].get_ylabel())
             if ylabel in ['', ' ', None]:
                 ylabel = self._format_latex_label(self.default_ylabel)
 
+            # row label
             supylabel = ''
             if ylabel is not None:
                 ylabel_parts = ylabel.rsplit('\n', 1)
@@ -305,29 +373,20 @@ class GridPlot:
                                          fontweight='bold')
                 row_axes[0].set_ylabel(ylabel, rotation=90, labelpad=10, va='center', fontsize='medium')
 
+
             subfig_d = {key: self.ax_grid.get(key, None) for key in row_keys}
             plot_d = {key: ax for key, ax in subfig_d.items() if (ax is not None) and (self.ax_grid_types[key] in ['plot', 'heatmap'])}
             max_col = max([key[1] for key in subfig_d.keys()])
             yticks = row_axes[0].get_yticks()
-            if ylim_by in ['subfig', 'row']:
-                _ylims = []
-                for key, ax in plot_d.items():
-                    n_ylims = ax.get_ylim()
-                    _ylims.append(n_ylims[0])
-                    _ylims.append(n_ylims[1])
-                if len(_ylims) > 0:
-                    _ylims = (min(_ylims), max(_ylims))
 
-                    if np.abs(_ylims[1] - _ylims[0]) > 1:
-                        yticks = int_yticks_within_ylim(_ylims[0], _ylims[1])
-                        ylims = (min(min(yticks[1:]), _ylims[0]) - (yticks[1] - yticks[0]) * 0.4,
-                                 _ylims[-1] + (yticks[1] - yticks[0]) * 0.4)
-                    else:
-                        yticks = plot_d[list(plot_d.keys())[0]].get_yticks()
-                        ylims = _ylims
+            if ylim_by in ['subfig', 'row']:
+                plotted_values = self.collect_plotted_ylims(plot_d.values())
+                if len(plotted_values) > 0:
+                    ylims, yticks = self.unify_ylims(plotted_values, mode='centralize')
 
                     for key, ax in plot_d.items():
                         ax.set_ylim(ylims)
+                    row_ylims[ik] = ylims
                 y_tick_list.append(yticks)
 
             for key, ax in subfig_d.items():
@@ -495,10 +554,15 @@ class GridPlot:
                             try:
                                 if len(xticks) >= 2:
                                     ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
+                                    ax.set_xticks(xticks)
                             except:
                                 xticks = ax.get_xticks()
                                 if len(xticks) >= 2:
                                     ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
+                                    ax.set_xticks(xticks)
+
+                    if ik in row_ylims:
+                        ax.set_ylim(row_ylims[ik])
 
                     title_text = self._format_latex_label(ax.get_title())
                     if keep_titles is not False:
