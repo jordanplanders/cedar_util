@@ -5,6 +5,7 @@ import matplotlib as mpl
 import numpy as np
 import seaborn as sns
 import pyarrow as pa
+# import pandas as pd
 import pyarrow.compute as pc
 import polars as pl
 import logging
@@ -17,7 +18,7 @@ except ImportError:
     from utils.cli.logging import setup_logging, log_line
 
 
-def font_resizer(context='paper', multiplier=1.0):
+def font_resizer(context='paper', multiplier=1.0, rc=None):
     if context == 'paper':
         sns.set_context("paper", rc={
             "axes.titlesize": 14,
@@ -65,6 +66,8 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
     """
     if isinstance(table, pa.Table):
         schema_names = table.schema.names
+    # elif isinstance(table, pd.DataFrame):
+    #     schema_names = table.columns
     else:
         schema_names = table.collect_schema().names()
 
@@ -76,8 +79,17 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
 
     if isinstance(table, pa.Table):
         relations = [r for r in pc.unique(table[relation_col]).to_pylist() if r is not None]
+    # elif isinstance(table, pd.DataFrame):
+    #     relations = [r for r in table[relation_col].unique() if r is not None]
     else:
-        relations = [r for r in table.select(relation_col).unique().collect()[relation_col].to_list() if r is not None]
+        relation_values = table.select(relation_col).unique()
+
+        if isinstance(relation_values, pl.LazyFrame):
+            relation_values = relation_values.collect()
+
+        relations = [r for r in relation_values[relation_col].to_list() if r is not None]
+
+        # relations = [r for r in table.select(relation_col).unique().collect()[relation_col].to_list() if r is not None]
     palette = {} if palette is None else dict(palette)
 
     for rel in relations:
@@ -389,58 +401,58 @@ def add_relation_s_inferred(
     return table
 
 
-def int_yticks_within_ylim(ymin, ymax):
-    # Find all integer values within the current limits
-    ticks = np.arange(np.floor(ymin), np.ceil(ymax) + 1)
-    # Ensure at least 2 ticks (for degenerate ranges)
-    if len(ticks) < 2:
-        ticks = np.array([np.floor(ymin), np.ceil(ymax)])
-    return ticks.astype(int)
+# def int_yticks_within_ylim(ymin, ymax):
+#     # Find all integer values within the current limits
+#     ticks = np.arange(np.floor(ymin), np.ceil(ymax) + 1)
+#     # Ensure at least 2 ticks (for degenerate ranges)
+#     if len(ticks) < 2:
+#         ticks = np.array([np.floor(ymin), np.ceil(ymax)])
+#     return ticks.astype(int)
 
 
-def replace_supylabel(label):
-    label = label.replace('Doering', 'Döring')
-    return label
+# def replace_supylabel(label):
+#     label = label.replace('Doering', 'Döring')
+#     return label
 
 
-def int_yticks_from_ylim(ymin, ymax):
-    # Ensure ymin < ymax
-    if ymin == ymax:
-        ymin -= 0.5
-        ymax += 0.5
-
-    # Compute rough range and ideal tick spacing
-    yrange = ymax - ymin
-    rough_spacing = yrange / 2  # aim for ~3 ticks total (2 intervals)
-
-    # Round spacing to nearest "nice" integer (1, 2, 5, 10, etc.)
-    exp = math.floor(math.log10(rough_spacing))
-    base = rough_spacing / (10 ** exp)
-    if base < 1.5:
-        nice_base = 1
-    elif base < 3.5:
-        nice_base = 1
-    elif base < 7.5:
-        nice_base = 5
-    else:
-        nice_base = 10
-    spacing = nice_base * (10 ** exp)
-
-    # Compute tick positions
-    tick_start = math.floor(ymin / spacing) * spacing
-    tick_end = math.ceil(ymax / spacing) * spacing
-    ticks = np.arange(tick_start-spacing, tick_end + spacing, spacing)
-
-    # Ensure at least 2 ticks
-    if len(ticks) < 2:
-        ticks = np.array([math.floor(ymin), math.ceil(ymax)])
-    elif len(ticks) == 2:
-        # Try to add a middle tick if possible
-        mid = np.mean(ticks)
-        if mid.is_integer():
-            ticks = np.array([ticks[0], mid, ticks[1]])
-
-    return ticks.astype(int)
+# def int_yticks_from_ylim(ymin, ymax):
+#     # Ensure ymin < ymax
+#     if ymin == ymax:
+#         ymin -= 0.5
+#         ymax += 0.5
+#
+#     # Compute rough range and ideal tick spacing
+#     yrange = ymax - ymin
+#     rough_spacing = yrange / 2  # aim for ~3 ticks total (2 intervals)
+#
+#     # Round spacing to nearest "nice" integer (1, 2, 5, 10, etc.)
+#     exp = math.floor(math.log10(rough_spacing))
+#     base = rough_spacing / (10 ** exp)
+#     if base < 1.5:
+#         nice_base = 1
+#     elif base < 3.5:
+#         nice_base = 1
+#     elif base < 7.5:
+#         nice_base = 5
+#     else:
+#         nice_base = 10
+#     spacing = nice_base * (10 ** exp)
+#
+#     # Compute tick positions
+#     tick_start = math.floor(ymin / spacing) * spacing
+#     tick_end = math.ceil(ymax / spacing) * spacing
+#     ticks = np.arange(tick_start-spacing, tick_end + spacing, spacing)
+#
+#     # Ensure at least 2 ticks
+#     if len(ticks) < 2:
+#         ticks = np.array([math.floor(ymin), math.ceil(ymax)])
+#     elif len(ticks) == 2:
+#         # Try to add a middle tick if possible
+#         mid = np.mean(ticks)
+#         if mid.is_integer():
+#             ticks = np.array([ticks[0], mid, ticks[1]])
+#
+#     return ticks.astype(int)
 
 
 def isotope_ylabel(isotope):

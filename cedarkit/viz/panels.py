@@ -323,10 +323,14 @@ class BasePlot:
                         label=labels[-(ik+1)]
                         handle=handles[-(ik+1)]
 
-                        if isinstance(handle, (mpl.lines.Line2D) ) is False:
-                            if label not in self.scatter_labels:
-                                self.scatter_handles.append(handle)
-                                self.scatter_labels.append(label)
+                        if label not in self.line_labels and label not in self.scatter_labels:
+                            self.scatter_handles.append(handle)
+                            self.scatter_labels.append(label)
+
+                        # if isinstance(handle, (mpl.lines.Line2D) ) is False:
+                        #     if label not in self.scatter_labels:
+                        #         self.scatter_handles.append(handle)
+                        #         self.scatter_labels.append(label)
 
                 elif element_type == 'line':
                     for handle, label in zip(handles, labels):
@@ -465,12 +469,22 @@ class LibSizeRhoPlot(BasePlot):
             outputgrp.aggregate_libsize()
         self.palette = check_palette_syntax(self.palette, outputgrp.libsize_aggregated.full)
 
-        outputgrp.libsize_aggregated.get_table()
+        if outputgrp.libsize_aggregated._full is None:
+            outputgrp.libsize_aggregated.get_table()
+
 
         if isinstance(outputgrp.libsize_aggregated._full, pa.Table):
             schema_names = outputgrp.libsize_aggregated._full.schema.names
         else:
             schema_names = outputgrp.libsize_aggregated._full.collect_schema().names()
+        has_surrogates = "surr_var" in schema_names
+        if has_surrogates:
+            surrogate_check = outputgrp.libsize_aggregated._full.select(
+                pl.col("surr_var").ne("neither").any()
+            )
+            if isinstance(surrogate_check, pl.LazyFrame):
+                surrogate_check = surrogate_check.collect()
+            has_surrogates = surrogate_check.item()
 
         if 'relation' not in schema_names:
             x_name, y_name = self.resolve_xy_names(outputgrp)
@@ -490,59 +504,67 @@ class LibSizeRhoPlot(BasePlot):
         )
         real_lag_df = real_lag_df[real_lag_df['lag'] == self.lag]
         if smoothed:
+            group_cols = ["relation", "surr_var", "surr_num"]
+            real_lag_df = real_lag_df.sort_values(group_cols + ["LibSize"]).copy()
             real_lag_df[self.y_var] = (
-                real_lag_df.groupby('relation')[self.y_var]
-                .rolling(window=5, center=True)
-                .mean()
-                .reset_index(level=0, drop=True)
+                real_lag_df.groupby(group_cols, dropna=False)[self.y_var]
+                .transform(lambda values: values.rolling(window=2, center=True, min_periods=1).mean())
             )
+            # real_lag_df[self.y_var] = (
+            #     real_lag_df.groupby('relation')[self.y_var]
+            #     .rolling(window=5, center=True)
+            #     .mean()
+            #     .reset_index(level=0, drop=True)
+            # )
         self.add_line(real_lag_df, units='surr_num')
 
-        surr_lag_df = self.pull_df(
-            outputgrp,
-            'libsize_aggregated',
-            'surrogate',
-            columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau'],
-            relation_cats=self.relation_scope_surr,
-        )
 
-        if len(surr_lag_df.lag.unique()) > 1:
-            lag_d = {}
-            for lag, lag_surr_df in surr_lag_df.groupby('lag'):
-                counts = [
-                    surr_df.surr_num.nunique()
-                    for _, surr_df in lag_surr_df.groupby('surr_var')
-                ]
-                lag_d[lag] = counts
+        if has_surrogates:
+            surr_lag_df = self.pull_df(
+                outputgrp,
+                'libsize_aggregated',
+                'surrogate',
+                columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau'],
+                relation_cats=self.relation_scope_surr,
+            )
 
-            winner = max(
-                lag_d,
-                key=lambda lag: (
-                    min(lag_d[lag]),  # biggest minimum count wins
-                    sum(lag_d[lag]),  # then biggest total
-                    -abs(lag),  # then closest to 0
+            if len(surr_lag_df.lag.unique()) > 1:
+                lag_d = {}
+                for lag, lag_surr_df in surr_lag_df.groupby('lag'):
+                    counts = [
+                        surr_df.surr_num.nunique()
+                        for _, surr_df in lag_surr_df.groupby('surr_var')
+                    ]
+                    lag_d[lag] = counts
+
+                winner = max(
+                    lag_d,
+                    key=lambda lag: (
+                        min(lag_d[lag]),  # biggest minimum count wins
+                        sum(lag_d[lag]),  # then biggest total
+                        -abs(lag),  # then closest to 0
+                    )
                 )
-            )
-        else:
-            winner = surr_lag_df['lag'].iloc[0]
+            else:
+                winner = surr_lag_df['lag'].iloc[0]
 
-        surr_lag_df = surr_lag_df[surr_lag_df['lag'] == winner].copy()
+            surr_lag_df = surr_lag_df[surr_lag_df['lag'] == winner].copy()
 
-        # surr_lag_df = surr_lag_df[surr_lag_df['lag'] == self.lag]
-        if smoothed:
-            surr_lag_df[self.y_var] = (
-                surr_lag_df.groupby(['relation', 'surr_var', 'surr_num'])[self.y_var]
-                .rolling(window=5, center=True)
-                .mean()
-                .reset_index(level=[0, 1, 2], drop=True)
-            )
+            # surr_lag_df = surr_lag_df[surr_lag_df['lag'] == self.lag]
+            if smoothed:
+                surr_lag_df[self.y_var] = (
+                    surr_lag_df.groupby(['relation', 'surr_var', 'surr_num'])[self.y_var]
+                    .rolling(window=5, center=True)
+                    .mean()
+                    .reset_index(level=[0, 1, 2], drop=True)
+                )
 
-        for surr_var, surr_sub_df in surr_lag_df.groupby(['surr_var']):
-            annotation = f'{surr_var[0]}: n={len(surr_sub_df["surr_num"].unique())}'
-            if annotation not in self.annotations:
-                self.annotations.append(annotation)
+            for surr_var, surr_sub_df in surr_lag_df.groupby(['surr_var']):
+                annotation = f'{surr_var[0]}: n={len(surr_sub_df["surr_num"].unique())}'
+                if annotation not in self.annotations:
+                    self.annotations.append(annotation)
 
-        self.add_line(surr_lag_df, units=self.units)
+            self.add_line(surr_lag_df, units=self.units)
 
         outputgrp.clear_tables()
 
@@ -1283,6 +1305,7 @@ class ResultsGrid(BasePlot):
             zorder=10,
             linewidth=.7,
             edgecolor=self.outline_color if self.outline_color is not None else 'none',
+            rasterized=True # for publication
             # linewidth=0.25 if self.outline_color is not None else 0,
         )
 
