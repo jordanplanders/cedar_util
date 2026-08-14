@@ -729,6 +729,21 @@ if __name__ == "__main__":
         object_grid = joblib_cloud_load(tmp_dir / obj_grid_file_name)
     except:
         object_grid = {}
+    else:
+        # This runner knows its local dyad explicitly.  Its local copies are
+        # authoritative, so rebase the portable suffix below that anchor.
+        rebound_paths = 0
+        try:
+            for cell_obj in object_grid.values():
+                output_obj = getattr(cell_obj, "output", None) if cell_obj is not None else None
+                if output_obj is not None and hasattr(output_obj, "resolve_paths"):
+                    rebound_paths += output_obj.resolve_paths(proj_dir, prefer_local=True)
+        except Exception as error:
+            log_line(logger, f"Unable to rebase copied output paths: {error}",
+                     indent=0, log_type="warning")
+        if rebound_paths:
+            log_line(logger, f"Rebound {rebound_paths} copied output path(s) under dyad {proj_dir.name}.",
+                     indent=0, log_type="info")
 
     # Process the (E, tau) configuration if not already processed
     not_in_grid = (E, tau) not in object_grid.keys()

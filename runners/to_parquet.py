@@ -27,37 +27,6 @@ except ImportError:
     # from utils.routing.paths import set_calc_path, set_output_path
 
 
-# from tmp_utils.path_utils import set_calc_path, set_output_path, template_replacement
-
-# def check_csv(output_file_name):
-#     if '.csv' not in output_file_name:
-#         output_file_name = f'{output_file_name}.csv'
-#     return output_file_name
-
-
-# def check_existance_in_table(table, trait_d):
-#     if table is None:
-#         return False
-#     if table.num_rows == 0:
-#         return False
-#     try:
-#         mask_list = [pc.equal(table[key], value) for key, value in trait_d.items() if key in table.schema.names]
-#         if mask_list:
-#             mask = reduce(pc.and_, mask_list)
-#             filtered_table = table.filter(mask)
-#         else:
-#             filtered_table = table
-#     except:
-#         print('failed to filter table with', trait_d, file=sys.stderr, flush=True)
-#         return False
-
-# drop duplicates in parquet table
-
-
-# def get_col_var_and_target_var(config, parts_d):
-#     col_var = config.get_dynamic_attr("{var}.var", parts_d['col_var_id'])
-#     target_var = config.get_dynamic_attr("{var}.var", parts_d['target_var_id'])
-#     return col_var, target_var
 
 
 if __name__ == "__main__":
