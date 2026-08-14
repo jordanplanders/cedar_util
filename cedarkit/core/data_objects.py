@@ -40,9 +40,55 @@ except ImportError:
 
 # dump
 import os
+from pathlib import Path
 # SCRIPT = Path(__file__).resolve().name
 import logging
 logger = logging.getLogger(__name__)
+
+
+def resolve_dyad_anchored_path(path, dyad_dir, *, prefer_local=False):
+    """Return an existing local equivalent of ``path`` under ``dyad_dir``.
+
+    Output grids have historically stored absolute paths.  Those paths are
+    valid only on the machine where the grid was created, but the part below
+    the dyad directory is portable.  For example, this maps
+    ``/hpc/.../dyads/A_B/tmp/result.parquet`` to
+    ``/local/.../dyads/A_B/tmp/result.parquet`` when ``dyad_dir`` is the
+    local ``A_B`` directory.  When ``prefer_local`` is ``True``, that local
+    counterpart wins even when the original path remains accessible.  The
+    original path is returned when no existing local counterpart can be
+    confirmed.
+    """
+    if path is None:
+        return None
+
+    original = Path(path)
+    if dyad_dir is None:
+        return original
+
+    dyad_dir = Path(dyad_dir)
+    if not dyad_dir.is_dir():
+        return original
+
+    # Use the final occurrence: a parent directory can occasionally share
+    # the dyad's name, while the final one is the actual anchor.
+    anchor_positions = [
+        index for index, part in enumerate(original.parts)
+        if part == dyad_dir.name
+    ]
+    for anchor_index in reversed(anchor_positions):
+        candidate = dyad_dir.joinpath(*original.parts[anchor_index + 1:])
+        if candidate.exists() and (prefer_local or not original.exists()):
+            return candidate
+    return original
+
+
+def _dyad_dir_from_tmp(tmp_dir):
+    """Infer a dyad directory from CedarKit's conventional ``<dyad>/tmp``."""
+    if tmp_dir is None:
+        return None
+    tmp_path = Path(tmp_dir)
+    return tmp_path.parent if tmp_path.name == "tmp" else None
 
 
 def correct_iterable(obj):
@@ -517,26 +563,37 @@ class RunConfig:
         """
         return {key: value for key, value in self.__dict__.items() if key in self.traits and value is not None}
 
+    def resolve_output_path(self, path, dyad_dir=None, *, prefer_local=False):
+        """Resolve a stale absolute output path against this run's dyad.
+
+        ``tmp_dir`` conventionally lives at ``<dyad>/tmp``; that gives old
+        pickled ``RunConfig`` instances enough local context to repair a
+        path copied from another machine.
+        """
+        if dyad_dir is None:
+            dyad_dir = _dyad_dir_from_tmp(self.tmp_dir)
+        return resolve_dyad_anchored_path(path, dyad_dir, prefer_local=prefer_local)
+
     def pull_output(self, to_table=False, limit_surr=True):
         """Load this run's output file, filtered to this instance's trait values.
 
         Reads ``self.output_path[0]`` — as a SQLite query (if
         ``self.output_format == 'sqlite'``, using ``self.output_query``/
-        ``self.output_params``) or as a Parquet dataset filtered by
+        ``self.output_params``) or as a Polars Parquet scan filtered by
         :meth:`to_dict`'s trait values otherwise.
 
         Parameters
         ----------
         to_table : bool, optional
-            If ``True``, return the raw table (a ``pyarrow.Table`` for the
-            SQLite path via ``Output.table``, or a filtered ``pyarrow.Table``
-            for the Parquet path) instead of wrapping it. Default is ``False``.
+            If ``True``, return the raw table (a ``polars.LazyFrame`` for
+            SQLite or a filtered ``polars.DataFrame`` for Parquet) instead of
+            wrapping it. Default is ``False``.
         limit_surr : bool, optional
             Currently unused by this method's body.
 
         Returns
         -------
-        pyarrow.Table or OutputCollection or None
+        polars.DataFrame or OutputCollection or None
             ``None`` if ``self.output_path`` is unset/empty (a message is
             logged in that case rather than raising). Otherwise the raw
             table if ``to_table`` is ``True``, else an ``OutputCollection``
@@ -547,7 +604,8 @@ class RunConfig:
             log_line(self.log, 'no output path specified', indent=0, log_type="error")
             return
 
-        file_path = self.output_path[0]
+        file_path = self.resolve_output_path(self.output_path[0])
+        self.output_path[0] = file_path
         log_line(self.log, ['pulling from', file_path], indent=0, log_type="info")
 
         if self.output_format == 'sqlite':
@@ -564,13 +622,18 @@ class RunConfig:
                 return table
             return OutputCollection(in_table=table, grp_specs=self, outtype='full', tmp_dir=self.tmp_dir)
 
-        dset = ds.dataset(str(file_path), format="parquet")
         all_traits = self.to_dict()
 
-        filters = {key: ds.field(key).isin(correct_iterable(value)) for key, value in all_traits.items() if
-                   value is not None and key in dset.schema.names}
-        combined_filter = reduce(operator.and_, filters.values())
-        filtered_table = dset.to_table(filter=combined_filter)
+        lf = pl.scan_parquet(str(file_path))
+        schema_names = set(lf.collect_schema().names())
+        filter_exprs = [
+            pl.col(key).is_in(correct_iterable(value))
+            for key, value in all_traits.items()
+            if value is not None and key in schema_names
+        ]
+        if filter_exprs:
+            lf = lf.filter(reduce(operator.and_, filter_exprs))
+        filtered_table = lf.collect()
 
         if to_table is True:
             return filtered_table
@@ -1251,7 +1314,8 @@ class DataGroup:
         for groupconfig_file in self.file_list:
             if not groupconfig_file.output_path:
                 continue
-            file_path = groupconfig_file.output_path[0]
+            file_path = groupconfig_file.resolve_output_path(groupconfig_file.output_path[0])
+            groupconfig_file.output_path[0] = file_path
             all_traits = groupconfig_file.to_dict()
 
             lf = pl.scan_parquet(str(file_path))
@@ -1306,7 +1370,8 @@ class Output:
         Parameters passed to ``pandas.read_sql_query`` alongside ``query``.
     """
 
-    def __init__(self, full, path=None, outtype=None, tmp_dir=None, query=None, format='parquet', params=None):
+    def __init__(self, full, path=None, outtype=None, tmp_dir=None, query=None, format='parquet', params=None,
+                 dyad_dir=None):
         """Wrap an already-loaded table, or set up to lazily load one later.
 
         Parameters
@@ -1328,6 +1393,10 @@ class Output:
             ``'parquet'`` or ``'sqlite'``. Default is ``'parquet'``.
         params : Any, optional
             Parameters passed to ``pandas.read_sql_query`` alongside ``query``.
+        dyad_dir : str or pathlib.Path, optional
+            Local dyad directory used to rebase a missing path copied from
+            another machine.  If omitted, ``tmp_dir`` is used when it follows
+            the conventional ``<dyad>/tmp`` layout.
         """
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
@@ -1338,6 +1407,9 @@ class Output:
         self.path = path
         self.type = outtype
         self.tmp_dir = tmp_dir
+        # Kept separately from ``path`` so serialized objects can retain an
+        # old absolute path yet be rebound to the local dyad at read time.
+        self.dyad_dir = dyad_dir
         self.query = query
         self.format = format
         self.params = params
@@ -1428,6 +1500,7 @@ class Output:
             only) is missing.
         """
         if self._full is None:
+            self.resolve_path()
             if format is None:
                 stored_format = getattr(self, "format", None)
                 format = stored_format if stored_format is not None else 'parquet'
@@ -1456,6 +1529,22 @@ class Output:
                 self._full = pl.from_pandas(df).lazy()
                 # self._full = pa.Table.from_pandas(df, preserve_index=False)
                 print('loaded from sqlite, type:', type(self._full), file=sys.stdout, flush=True)
+
+    def resolve_path(self, dyad_dir=None, *, prefer_local=False):
+        """Rebase this path beneath a local dyad directory, if possible.
+
+        By default existing paths are retained.  With ``prefer_local=True``,
+        an existing counterpart below the local dyad takes precedence.  In
+        both cases the suffix beneath the dyad name is preserved exactly.
+        """
+        if dyad_dir is None:
+            dyad_dir = getattr(self, 'dyad_dir', None)
+        if dyad_dir is None:
+            dyad_dir = _dyad_dir_from_tmp(self.tmp_dir)
+        resolved = resolve_dyad_anchored_path(self.path, dyad_dir, prefer_local=prefer_local)
+        if resolved is not None and resolved != self.path:
+            self.path = resolved
+        return self.path
 
 
     def clear_table(self):
@@ -2999,6 +3088,45 @@ class OutputCollection:
             paths['delta_rho_full'] = self.delta_rho_full.path
         return paths
 
+    def resolve_paths(self, dyad_dir, *, prefer_local=True):
+        """Rebase paths for this collection beneath ``dyad_dir``.
+
+        This is the explicit counterpart to :meth:`Output.resolve_path` for
+        callers (such as the object-grid runner) that already know the local
+        dyad directory.  It preserves every nested path component below the
+        dyad rather than assuming that all files live directly in ``tmp``.
+        Local counterparts are preferred by default because an explicit
+        ``dyad_dir`` identifies the active local analysis.  Pass
+        ``prefer_local=False`` to retain a still-reachable stored path.
+
+        Returns
+        -------
+        int
+            Number of paths successfully rebound.
+        """
+        dyad_dir = Path(dyad_dir)
+        rebound = 0
+        self.dyad_home = dyad_dir.parent
+
+        for attr in ['table', 'libsize_aggregated', 'active_stats', 'active_full',
+                     'delta_rho_stats', 'delta_rho_full']:
+            output = getattr(self, attr, None)
+            if output is None or not hasattr(output, 'resolve_path'):
+                continue
+            old_path = output.path
+            new_path = output.resolve_path(dyad_dir, prefer_local=prefer_local)
+            if new_path != old_path:
+                rebound += 1
+
+        if self.grp_config is not None and getattr(self.grp_config, 'output_path', None):
+            paths = self.grp_config.output_path
+            for index, old_path in enumerate(paths):
+                new_path = resolve_dyad_anchored_path(old_path, dyad_dir, prefer_local=prefer_local)
+                if new_path != old_path:
+                    paths[index] = new_path
+                    rebound += 1
+        return rebound
+
     def migrate_path(self, new_dyad_home=None, tmp_home=None):
         """Re-point every populated ``Output`` attribute's path/``tmp_dir`` at a new dyad home.
 
@@ -3452,8 +3580,10 @@ class CCMConfig(CMConfigBase):
         if self.min_window is not None:
             self.libsizes = np.concatenate([np.arange(self.min_libsize, self.min_libsize+self.min_window, self.libsize_step),
                                             np.arange(self.max_libsize -self.min_window, self.max_libsize, self.libsize_step)])
+            log_line(self.log, ['running reduced libsize spread: ', self.libsizes],indent=1, log_type="info")
         else:
             self.libsizes = np.arange(self.min_libsize, self.max_libsize + 1, self.libsize_step)
+
 
     # def set_col_ts(self, surr_num=None):
     #     # DUPLICATE of CMConfigBase.set_col_ts (identical body, minus that one's
