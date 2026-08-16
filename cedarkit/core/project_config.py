@@ -8,12 +8,7 @@ from typing import Any, Mapping
 import yaml
 from pathlib import Path
 
-try:
-    import cedarkit.utils.routing.paths
-
-except ImportError:
-    # Fallback: imports when running as a package
-    import utils.paths
+import cedarkit.utils.routing.paths
 
 
 class ProjectConfig:

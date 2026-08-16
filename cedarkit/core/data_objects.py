@@ -14,24 +14,12 @@ import polars as pl
 # import cedarkit.utils.paths
 # from cedarkit.utils.paths import set_calc_path, set_output_path, template_replace, check_exists
 
-# from core.data_var import *
-try:
-    from cedarkit.core.data_var import *
-    from cedarkit.core.relationship import *
-    from cedarkit.utils.workflow.process_output import infer_relation_variables
-    from cedarkit.utils.routing import *
-    from cedarkit.utils.routing import template_replace
-    # from cedarkit.utils.cli.logging import print_log_line
-    from cedarkit.utils.cli import log_line
-
-except ImportError:
-    # Fallback: imports when running as a package
-    from core.data_var import *
-    from core.relationship import *
-    from utils.workflow.process_output import infer_relation_variables
-    from utils.paths import *
-    from utils.routing.file_name_parsers import template_replace
-    from utils.cli.logging import log_line
+from cedarkit.core.data_var import *
+from cedarkit.core.relationship import *
+from cedarkit.utils.workflow.process_output import infer_relation_variables
+from cedarkit.utils.routing import *
+from cedarkit.utils.routing import template_replace
+from cedarkit.utils.cli import log_line
 
 # dump
 import os

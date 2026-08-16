@@ -6,17 +6,11 @@ from pathlib import Path
 import logging
 logger = logging.getLogger(__name__)
 
-try:
-    from cedarkit.utils.workflow import get_assessed_param_picks
-    from cedarkit.utils.cli import setup_logging, log_line
-    from cedarkit.core.project_config import load_config
-    from cedarkit.utils.routing import set_calc_path
-    from cedarkit.utils.routing.paths import resolve_consolidated_dir, resolve_intermediate_dir
-except ImportError:
-    from utils.workflow.parameter_utils import get_assessed_param_picks
-    from utils.cli.logging import setup_logging, log_line
-    from core.project_config import load_config
-    from utils.routing.paths import set_calc_path, resolve_consolidated_dir, resolve_intermediate_dir
+from cedarkit.utils.workflow import get_assessed_param_picks
+from cedarkit.utils.cli import setup_logging, log_line
+from cedarkit.core.project_config import load_config
+from cedarkit.utils.routing import set_calc_path
+from cedarkit.utils.routing.paths import resolve_consolidated_dir, resolve_intermediate_dir
 
 
 def _resolve_check_output_location(proj_dir, output_location, config, source, check):

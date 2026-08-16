@@ -9,17 +9,10 @@ import types
 import pathlib
 logger = logging.getLogger(__name__)
 
-try:
-    from cedarkit.utils.cli import setup_logging, log_line
-    from cedarkit.core.data_objects import DataGroup, OutputCollection, RunConfig, Output
-    from cedarkit.viz.grids import GridCell
-    from cedarkit.core.relationship import Relationship
-except ImportError:
-    # Fallback: imports when running as a package
-    from utils.cli.logging import setup_logging, log_line
-    from core.data_objects import OutputCollection, RunConfig, Output
-    from viz.grids import GridCell
-    from core.relationship import Relationship
+from cedarkit.utils.cli import setup_logging, log_line
+from cedarkit.core.data_objects import DataGroup, OutputCollection, RunConfig, Output
+from cedarkit.viz.grids import GridCell
+from cedarkit.core.relationship import Relationship
 
 # import your *current* classes
 

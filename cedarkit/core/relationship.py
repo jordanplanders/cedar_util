@@ -1,11 +1,7 @@
 import logging
 
 logger = logging.getLogger(__name__)
-try:
-    from cedarkit.utils.cli import log_line
-except ImportError:
-    def log_line(*args, **kwargs):
-        return None
+from cedarkit.utils.cli import log_line
 
 
 class RelationshipSide:

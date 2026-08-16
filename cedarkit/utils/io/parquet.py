@@ -11,24 +11,14 @@ import polars as pl
 import logging
 logger = logging.getLogger(__name__)
 
-try:
-    from cedarkit.utils.routing import template_replace, parse_surr_label
-    from cedarkit.utils.cli import setup_logging, log_line
-    from cedarkit.utils.workflow.process_output import parse_relation
-    from cedarkit.utils.routing.paths import (
-        resolve_consolidated_dir,
-        resolve_intermediate_dir,
-        set_output_path,
-    )
-except ImportError:
-    from utils.routing.file_name_parsers import template_replace, parse_surr_label
-    from utils.cli.logging import setup_logging, log_line
-    from utils.workflow.process_output import parse_relation
-    from utils.routing.paths import (
-        _resolve_consolidated_dir,
-        _resolve_intermediate_dir,
-        set_output_path,
-    )
+from cedarkit.utils.routing import template_replace, parse_surr_label
+from cedarkit.utils.cli import setup_logging, log_line
+from cedarkit.utils.workflow.process_output import parse_relation
+from cedarkit.utils.routing.paths import (
+    resolve_consolidated_dir,
+    resolve_intermediate_dir,
+    set_output_path,
+)
 
 
 def setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, output_dir = None, intermediate_type = 'csv', consolidated_type='parquet'):
