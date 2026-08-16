@@ -23,6 +23,7 @@ import polars as pl
 try:
     from cedarkit.core.data_var import *
     from cedarkit.core.relationship import *
+    from cedarkit.utils.workflow.process_output import infer_relation_variables
     from cedarkit.utils.routing import *
     from cedarkit.utils.routing import template_replace
     from cedarkit.utils.tables import as_len1_array, as_lenN_array
@@ -33,6 +34,7 @@ except ImportError:
     # Fallback: imports when running as a package
     from core.data_var import *
     from core.relationship import *
+    from utils.workflow.process_output import infer_relation_variables
     from utils.paths import *
     from utils.routing.file_name_parsers import template_replace
     from utils.tables.parquet_tools import _as_len1_array, _as_lenN_array
@@ -803,7 +805,7 @@ class DataGroup:
         self.missing_files = {}
         # print('Data group tmp dir', self.tmp_dir)
 
-
+    ############## marked for deprecation
     def _internal_query_v1(self, dset, query_config=None):
         # LEGACY: superseded by get_files's batch-scan implementation; see notes_core_todos.md. Not given a full docstring.
         if query_config is not None:
@@ -1046,6 +1048,9 @@ class DataGroup:
             if check_return(filtered_table) is True:
                 tables.append(filtered_table)
         return OutputCollection(grp_specs=self.get_group_config(), in_table=tables, tmp_dir=self.tmp_dir)
+
+    ##############
+
 
     def get_metadata_as_iterables(self):
         # Mutator: normalizes every value in self.metadata to a list via correct_iterable. No return value.
@@ -1413,6 +1418,76 @@ class Output:
         self.query = query
         self.format = format
         self.params = params
+        self.ensure_relation_columns()
+
+    def ensure_relation_columns(self):
+        """Derive ``relation_spec`` using CedarKit's established surrogate rules.
+
+        ``relation`` remains the generic source/data-file field.  This is the
+        non-mutating successor to ``add_relation_s_inferred``: it resolves the
+        two variable names from metadata when available, otherwise from the
+        relation strings, and adds or replaces ``relation_spec`` without
+        creating a semantic ``relation_0`` column.
+        """
+        if self._full is None:
+            return self
+
+        if isinstance(self._full, pa.Table):
+            self._full = pl.from_arrow(self._full).lazy()
+        elif isinstance(self._full, pd.DataFrame):
+            self._full = pl.from_pandas(self._full).lazy()
+        elif isinstance(self._full, pl.DataFrame):
+            self._full = self._full.lazy()
+        if not isinstance(self._full, pl.LazyFrame):
+            return self
+
+        schema_names = set(self._full.collect_schema().names())
+        if "relation" not in schema_names:
+            return self
+
+        if "surr_var" not in schema_names:
+            self._full = self._full.with_columns(pl.col("relation").cast(pl.String).alias("relation_spec"))
+            return self
+
+        def static_column_value(column):
+            if column not in schema_names:
+                return None
+            values = self._full.select(
+                pl.col(column).drop_nulls().cast(pl.String).filter(pl.col(column) != "").unique()
+            ).collect()[column]
+            return values[0] if len(values) == 1 else None
+
+        x_var_name = static_column_value("x_var")
+        y_var_name = static_column_value("y_var")
+        if x_var_name is None or y_var_name is None:
+            relations = self._full.select(pl.col("relation").drop_nulls().unique()).collect()["relation"].to_list()
+            x_var_name, y_var_name = infer_relation_variables(relations)
+
+        relation = pl.col("relation").cast(pl.String)
+        surr_var = pl.col("surr_var").cast(pl.String)
+        relation_spec = (
+            pl.when(relation.str.contains(r"\(surr\)"))
+            .then(relation)
+            .when(surr_var.is_null() | (surr_var == "") | (surr_var == "neither"))
+            .then(relation)
+            .when(surr_var == "both")
+            .then(
+                relation
+                .str.replace_all(x_var_name, f"{x_var_name} (surr) ")
+                .str.replace_all(y_var_name, f"{y_var_name} (surr) ")
+            )
+            .when(surr_var.is_in(["x", x_var_name]))
+            .then(relation.str.replace_all(x_var_name, f"{x_var_name} (surr) "))
+            .when(surr_var.is_in(["y", y_var_name]))
+            .then(relation.str.replace_all(y_var_name, f"{y_var_name} (surr) "))
+            .otherwise(relation)
+            .str.replace_all("  ", " ")
+            .str.strip_chars()
+        )
+        self._full = self._full.with_columns(
+            relation_spec.alias("relation_spec")
+        )
+        return self
 
     @property
     def surrogate(self):
@@ -1529,6 +1604,7 @@ class Output:
                 self._full = pl.from_pandas(df).lazy()
                 # self._full = pa.Table.from_pandas(df, preserve_index=False)
                 print('loaded from sqlite, type:', type(self._full), file=sys.stdout, flush=True)
+        self.ensure_relation_columns()
 
     def resolve_path(self, dyad_dir=None, *, prefer_local=False):
         """Rebase this path beneath a local dyad directory, if possible.
@@ -2007,6 +2083,31 @@ class OutputCollection:
                 raise ValueError("A supplied directed relationship has no r2 side.")
             return self.r2
         raise ValueError(f"Unsupported relationship_id '{relationship_id}'. Use 'r1' or 'r2'.")
+
+    def relation_aliases(self, relationship_id):
+        """Return generic relation spellings that select one relationship category.
+
+        CedarKit's :class:`Relationship` owns the normal r1/r2 vocabulary.
+        The fallbacks retain support for an externally supplied directed
+        relationship object, which need only expose ``r`` and ``r_calc``.
+        """
+        relationships = self.relationships
+        if relationships is None:
+            return [relationship_id]
+
+        if relationship_id in {"r1", "r2"} and hasattr(relationships, "relation_aliases"):
+            return list(relationships.relation_aliases(relationship_id))
+
+        if relationship_id == "r1" and self.r2 is None:
+            aliases = [getattr(relationships, attr, None) for attr in ("r_calc", "r", "formulation")]
+            return [alias for alias in aliases if alias is not None and "(surr)" not in alias]
+
+        aliases = [relationship_id]
+        for mapping_name in ("to_calc_mapping", "to_pres_mapping"):
+            mapping = getattr(relationships, mapping_name, None)
+            if isinstance(mapping, dict):
+                aliases.append(mapping.get(relationship_id, relationship_id))
+        return list(dict.fromkeys(alias for alias in aliases if alias is not None))
 
     def combine_OutputCollections(self, attr, other_output_collections):
         """Concatenate one named ``Output`` attribute across this and other ``OutputCollection``s.

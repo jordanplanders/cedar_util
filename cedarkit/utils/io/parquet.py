@@ -16,6 +16,7 @@ try:
     from cedarkit.utils.routing import template_replace, parse_surr_label
     from cedarkit.utils.tables import drop_duplicates, make_uid
     from cedarkit.utils.cli import setup_logging, log_line
+    from cedarkit.utils.workflow.process_output import parse_relation
     from cedarkit.utils.routing.paths import (
         resolve_consolidated_dir,
         resolve_intermediate_dir,
@@ -25,6 +26,7 @@ except ImportError:
     from utils.routing.file_name_parsers import template_replace, parse_surr_label
     from utils.tables.parquet_tools import drop_duplicates, make_uid
     from utils.cli.logging import setup_logging, log_line
+    from utils.workflow.process_output import parse_relation
     from utils.routing.paths import (
         _resolve_consolidated_dir,
         _resolve_intermediate_dir,
@@ -298,14 +300,13 @@ def package_calc_grp_results_to_parquet(
                 forcing_series = df["forcing"].astype("string").str.strip()
                 responding_series = df["responding"].astype("string").str.strip()
             else:
-                # parse "X causes Y", "X influences Y", "X -> Y", "X → Y"
-                # returns two columns lhs/rhs or NA if it can't parse
-                parsed = rel_series.str.extract(
-                    r"^\s*(?P<lhs>.+?)\s*(?:causes|influences|->|→)\s*(?P<rhs>.+?)\s*$",
-                    flags=re.IGNORECASE
-                )
-                forcing_series = parsed["lhs"].astype("string")
-                responding_series = parsed["rhs"].astype("string")
+                parsed = rel_series.map(parse_relation)
+                forcing_series = parsed.map(
+                    lambda relation: relation["lhs"] if relation is not None else pd.NA
+                ).astype("string")
+                responding_series = parsed.map(
+                    lambda relation: relation["rhs"] if relation is not None else pd.NA
+                ).astype("string")
 
             # ----------------------------------------------------------------------
 

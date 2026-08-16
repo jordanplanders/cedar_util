@@ -35,6 +35,7 @@ def test_relationship_mappings_round_trip_between_calc_and_pres():
 
     assert relationship.to_calc_mapping["TSI causes temp"] == "temp reconstructs TSI"
     assert relationship.to_pres_mapping["temp reconstructs TSI"] == "TSI causes temp"
+    assert relationship.to_pres_mapping["temp (surr) -> TSI"] == "TSI causes temp (surr)"
 
 
 def test_relationship_side_supports_written_calc_mapping():
@@ -54,3 +55,30 @@ def test_surrogate_calc_variant_tracks_operation_channel():
     relationship = Relationship(var_x="temp", var_y="TSI", output_convention="operation")
 
     assert relationship.surr_r1x_calc == "temp (surr) reconstructs TSI"
+
+
+def test_relation_aliases_identify_generic_r1_category_only():
+    relationship = Relationship(var_x="E", var_y="F", output_convention="operation")
+
+    aliases = relationship.relation_aliases("r1")
+
+    assert {
+        "E reconstructs F",
+        "E -> F",
+        "F causes E",
+        "F influences E",
+    }.issubset(aliases)
+    assert all("(surr)" not in alias for alias in aliases)
+
+
+def test_relation_aliases_identify_generic_r2_category_only():
+    relationship = Relationship(var_x="E", var_y="F", output_convention="operation")
+
+    aliases = relationship.relation_aliases("r2")
+
+    assert {
+        "F reconstructs E",
+        "F -> E",
+        "E causes F",
+        "E influences F",
+    }.issubset(aliases)

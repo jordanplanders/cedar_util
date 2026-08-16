@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 try:
     from cedarkit.utils.plotting.plotting_utils import (
         check_palette_syntax,
-        add_relation_s_inferred,
         replace_latex_labels,
         isotope_ylabel,
         build_discrete_lag_palette,
@@ -23,7 +22,6 @@ try:
 except ImportError:
     from utils.plotting.plotting_utils import (
         check_palette_syntax,
-        add_relation_s_inferred,
         replace_latex_labels,
         isotope_ylabel,
         build_discrete_lag_palette,
@@ -103,8 +101,30 @@ class BasePlot:
         self.relation_scope_real=None
         self.relation_scope_surr=None
 
+        self.id_columns = ('relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau')
+
         if grp_d is not None:
             self.populate(grp_d)
+
+    @property
+    def pull_columns(self):
+        """The standard plotting frame shared by CedarKit panel plots.
+
+        ``relation_spec`` is deliberately absent: it is an Output-level
+        derived field used internally to materialize the displayed
+        ``relation`` column.
+        """
+        return list(dict.fromkeys(
+            column for column in (*self.id_columns, self.x_var, self.y_var)
+            if column is not None
+        ))
+
+    def default_pull_columns(self, output_type):
+        """Return the standard frame supported by an output family."""
+        columns = self.pull_columns.copy()
+        if output_type in {'delta_rho_full', 'delta_rho_stats'}:
+            columns = [column for column in columns if column not in {'E', 'tau'}]
+        return columns
 
     def populate(self, grp_d):
         for key, value in grp_d.items():
@@ -187,25 +207,7 @@ class BasePlot:
         if output_obj is None:
             return None
 
-        if columns is None:
-            if output_type in ['delta_rho_full', 'delta_rho_stats']:
-                columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num']
-            elif output_type == 'libsize_aggregated':
-                columns = [self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau']
 
-        if isinstance(output_obj._full, pa.Table):
-            schema_names = output_obj._full.schema.names
-        else:
-            schema_names = output_obj._full.collect_schema().names()
-
-        if 'relation_0' not in schema_names:
-            x_name, y_name = self.resolve_xy_names(outputgrp)
-            output_obj._full = add_relation_s_inferred(
-                output_obj._full,
-                x_var_name=x_name,
-                y_var_name=y_name,
-                relation_col='relation'
-            )
         self.palette = check_palette_syntax(self.palette, output_obj._full)
 
         if output_scope == 'real':
@@ -223,33 +225,7 @@ class BasePlot:
         mapped_relation_cats = []
         if relation_cats is not None:
             for relationship_id in relation_cats:
-                relationships = None
-                if relationship_id == 'r1':
-                    relationships = [
-                        outputgrp.relationships.r1,
-                        outputgrp.relationships.r1_calc,
-                        outputgrp.relationships.surr_r1x,
-                        outputgrp.relationships.surr_r1x_calc,
-                        outputgrp.relationships.surr_r1y,
-                        outputgrp.relationships.surr_r1y_calc,
-                    ]
-                elif relationship_id == 'r2':
-                    relationships = [
-                        outputgrp.relationships.r2,
-                        outputgrp.relationships.r2_calc,
-                        outputgrp.relationships.surr_r2x,
-                        outputgrp.relationships.surr_r2x_calc,
-                        outputgrp.relationships.surr_r2y,
-                        outputgrp.relationships.surr_r2y_calc,
-                    ]
-                else:
-                    print(f"Warning: relationship_id '{relationship_id}' not recognized. Using it directly as a category filter.")
-                    relationships = [relationship_id]
-                    if getattr(outputgrp, "relationships", None) is not None:
-                        relationships.append(outputgrp.relationships.to_calc_mapping.get(relationship_id, relationship_id))
-                        relationships.append(outputgrp.relationships.to_pres_mapping.get(relationship_id, relationship_id))
-
-                mapped_relation_cats += [rel for rel in relationships if rel is not None]
+                mapped_relation_cats += outputgrp.relation_aliases(relationship_id)
 
             mapped_relation_cats = list(dict.fromkeys(mapped_relation_cats))
 
@@ -259,44 +235,37 @@ class BasePlot:
             else:
                 output = output.filter(pl.col("relation").is_in(mapped_relation_cats))
 
-        df = self._pull_df(output, columns=columns)
+        requested_columns = list(columns) if columns is not None else self.default_pull_columns(output_type)
+        source_columns = list(dict.fromkeys([
+            *requested_columns,
+            'relation',
+            'relation_spec',
+        ]))
+        df = self._pull_df(output, columns=source_columns)
         outputgrp.clear_tables()
 
-        if df is not None and "relation" in df.columns and getattr(outputgrp, "relationships", None) is not None:
+        df["relation"] = df["relation_spec"]
+        relationships = getattr(outputgrp, "relationships", None)
+        if relationships is not None:
             if relation_convention == "pres":
-                relation_mapping = outputgrp.relationships.to_pres_mapping
+                relation_mapping = relationships.to_pres_mapping
             elif relation_convention == "calc":
-                relation_mapping = outputgrp.relationships.to_calc_mapping
+                relation_mapping = relationships.to_calc_mapping
             else:
                 raise ValueError(
                     f"Unsupported relation_convention '{relation_convention}'. Use 'pres' or 'calc'."
                 )
-            # Candidate to modularize later if this relation-column normalization pattern repeats elsewhere.
             df["relation"] = df["relation"].map(lambda value: relation_mapping.get(value, value))
             if isinstance(self.palette, dict):
                 for source_label, presentation_label in relation_mapping.items():
                     if source_label in self.palette and presentation_label not in self.palette:
                         self.palette[presentation_label] = self.palette[source_label]
 
+        self.palette = check_palette_syntax(self.palette, df, logger=logger)
+        if "relation_spec" not in requested_columns:
+            df = df.drop(columns=["relation_spec"], errors="ignore")
+
         return df
-
-
-
-    def resolve_xy_names(self, outputgrp):
-        x_name = None
-        y_name = None
-        relationships = getattr(outputgrp, "relationships", None)
-        if relationships is not None:
-            x_name = getattr(relationships, "var_x", None)
-            y_name = getattr(relationships, "var_y", None)
-        if x_name is None or y_name is None:
-            grp_config = getattr(outputgrp, "grp_config", None)
-            if grp_config is not None:
-                if x_name is None:
-                    x_name = getattr(grp_config, "var_x", None)
-                if y_name is None:
-                    y_name = getattr(grp_config, "var_y", None)
-        return x_name, y_name
 
 
     def handle_legend(self, collect_legend=True, legend=False, element_type='scatter', custom_handles=None, custom_labels=None):
@@ -486,20 +455,10 @@ class LibSizeRhoPlot(BasePlot):
                 surrogate_check = surrogate_check.collect()
             has_surrogates = surrogate_check.item()
 
-        if 'relation' not in schema_names:
-            x_name, y_name = self.resolve_xy_names(outputgrp)
-            outputgrp.libsize_aggregated._full = add_relation_s_inferred(
-                outputgrp.libsize_aggregated._full,
-                x_var_name=x_name,
-                y_var_name=y_name,
-                relation_col='relation'
-            )
-
         real_lag_df = self.pull_df(
             outputgrp,
             'libsize_aggregated',
             'real',
-            columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau'],
             relation_cats=self.relation_scope_real,
         )
         real_lag_df = real_lag_df[real_lag_df['lag'] == self.lag]
@@ -524,7 +483,6 @@ class LibSizeRhoPlot(BasePlot):
                 outputgrp,
                 'libsize_aggregated',
                 'surrogate',
-                columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'E', 'tau'],
                 relation_cats=self.relation_scope_surr,
             )
 
@@ -891,14 +849,10 @@ class LagPlot(BasePlot):
                               relation_scope=None, comparison_labels=None, hue='relation'):
 
         if isinstance(outputgrp, (list, tuple)):
-            plot_columns = list(dict.fromkeys([
-                self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num', 'lag', 'comparison_label'
-            ]))
             real_lag_df = self.pull_df(
                 outputgrp,
                 'delta_rho_stats',
                 'real',
-                columns=plot_columns,
                 relation_cats=relation_scope,
                 comparison_labels=comparison_labels,
             )
@@ -919,7 +873,6 @@ class LagPlot(BasePlot):
                     outputgrp,
                     surrogate_output_type,
                     'surrogate',
-                    columns=plot_columns,
                     relation_cats=relation_scope,
                     comparison_labels=comparison_labels,
                 )
@@ -952,25 +905,10 @@ class LagPlot(BasePlot):
         elif stats_only is False:
             outputgrp.delta_rho_full.get_table()
 
-        if isinstance(outputgrp.delta_rho_stats._full, pa.Table):
-            schema_names = outputgrp.delta_rho_stats._full.schema.names
-        else:
-            schema_names = outputgrp.delta_rho_stats._full.collect_schema().names()
-
-        if 'relation_0' not in schema_names:
-            x_name, y_name = self.resolve_xy_names(outputgrp)
-            outputgrp.delta_rho_stats._full = add_relation_s_inferred(
-                outputgrp.delta_rho_stats._full,
-                x_var_name=x_name,
-                y_var_name=y_name,
-                relation_col='relation'
-            )
-
         real_lag_df = self.pull_df(
             outputgrp,
             'delta_rho_stats',
             'real',
-            columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num'],
             relation_cats=relation_scope,
         )
         self.add_line(real_lag_df, units=None)
@@ -984,7 +922,6 @@ class LagPlot(BasePlot):
                         outputgrp,
                         'delta_rho_full',
                         'surrogate',
-                        columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num'],
                         relation_cats=relation_scope,
                     ))
                 else:
@@ -993,7 +930,6 @@ class LagPlot(BasePlot):
                         outputgrp,
                         'delta_rho_stats',
                         'surrogate',
-                        columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num'],
                         relation_cats=relation_scope,
                     ))
             if boxplot is True:
@@ -1002,7 +938,6 @@ class LagPlot(BasePlot):
                         outputgrp,
                         'delta_rho_full',
                         'surrogate',
-                        columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num'],
                         relation_cats=self.relation_scope_surr,
                     )
                 else:
@@ -1012,7 +947,6 @@ class LagPlot(BasePlot):
                         outputgrp,
                         'delta_rho_stats',
                         'surrogate',
-                        columns=[self.x_var, self.y_var, 'relation', 'surr_var', 'surr_num'],
                         relation_cats=self.relation_scope_surr,
                     )
                     log_line(logger, f'box_df size before lag filtering: {len(box_df)}', indent=0, log_type="debug")
