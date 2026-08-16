@@ -2,16 +2,11 @@
 import collections.abc
 from copy import deepcopy
 import pandas as pd
-import pyarrow.dataset as ds
-import pyarrow.parquet as pq
 from functools import reduce
 import operator
 from collections import defaultdict
 import uuid
-# from pyarrow import table
 import gc
-import pyarrow as pa
-import pyarrow.compute as pc
 import numpy as np
 from types import SimpleNamespace
 import polars as pl
@@ -26,7 +21,6 @@ try:
     from cedarkit.utils.workflow.process_output import infer_relation_variables
     from cedarkit.utils.routing import *
     from cedarkit.utils.routing import template_replace
-    from cedarkit.utils.tables import as_len1_array, as_lenN_array
     # from cedarkit.utils.cli.logging import print_log_line
     from cedarkit.utils.cli import log_line
 
@@ -37,7 +31,6 @@ except ImportError:
     from utils.workflow.process_output import infer_relation_variables
     from utils.paths import *
     from utils.routing.file_name_parsers import template_replace
-    from utils.tables.parquet_tools import _as_len1_array, _as_lenN_array
     from utils.cli.logging import log_line
 
 # dump
@@ -196,14 +189,6 @@ def extract_from_pattern(filename: str, pattern_str: str):
     return {k: int(v) for k, v in match.groupdict().items()}
 
 
-def check_return(table):
-    # Returns True if table is not None and has at least one row, else False.
-    if table is not None and table.num_rows > 0:
-        return True
-    else:
-        return False
-
-
 def compute_delta_rho_grp(
         lag_tbl,
         gd: dict,
@@ -234,7 +219,7 @@ def compute_delta_rho_grp(
 
     Parameters
     ----------
-    lag_tbl : pyarrow.Table or polars.LazyFrame or polars.DataFrame or pandas.DataFrame
+    lag_tbl : polars.LazyFrame or polars.DataFrame or pandas.DataFrame
         Lagged correlation data for one group. Must have ``'LibSize'``
         (int/float) and ``'rho'`` (float) columns.
     gd : dict
@@ -269,9 +254,7 @@ def compute_delta_rho_grp(
         If ``lag_tbl`` is not one of the supported table types.
     """
     # lag_tbl = self.table.full
-    if isinstance(lag_tbl, pa.Table):
-        lag_df = lag_tbl.to_pandas()
-    elif isinstance(lag_tbl, pl.LazyFrame):
+    if isinstance(lag_tbl, pl.LazyFrame):
         lag_df = lag_tbl.collect().to_pandas()
     elif isinstance(lag_tbl, pl.DataFrame):
         lag_df = lag_tbl.to_pandas()
@@ -648,7 +631,7 @@ class RunConfig:
 
         Parameters
         ----------
-        full_ds : pandas.DataFrame or pyarrow.Table or polars.DataFrame or polars.LazyFrame
+        full_ds : pandas.DataFrame or polars.DataFrame or polars.LazyFrame
             The dataset to analyze. Converted to a pandas DataFrame internally.
         trait : str
             The reference column defining the grouping level.
@@ -664,16 +647,14 @@ class RunConfig:
         list of str
             Traits classified as 'above' or 'below' relative to the grouping level.
         """
-        if isinstance(full_ds, pa.Table):
-            df = full_ds.to_pandas(types_mapper=pd.ArrowDtype)
-        elif isinstance(full_ds, pl.LazyFrame):
+        if isinstance(full_ds, pl.LazyFrame):
             df = full_ds.collect().to_pandas()
         elif isinstance(full_ds, pl.DataFrame):
             df = full_ds.to_pandas()
         elif isinstance(full_ds, pd.DataFrame):
             df = full_ds
         else:
-            raise TypeError("Input must be a pandas DataFrame, pyarrow Table, or polars DataFrame/LazyFrame")
+            raise TypeError("Input must be a pandas DataFrame or polars DataFrame/LazyFrame")
 
         if trait not in df.columns:
             raise ValueError(f"Trait '{trait}' not found in columns")
@@ -804,253 +785,6 @@ class DataGroup:
         self.tmp_dir = tmp_dir
         self.missing_files = {}
         # print('Data group tmp dir', self.tmp_dir)
-
-    ############## marked for deprecation
-    def _internal_query_v1(self, dset, query_config=None):
-        # LEGACY: superseded by get_files's batch-scan implementation; see notes_core_todos.md. Not given a full docstring.
-        if query_config is not None:
-            all_traits = query_config.to_dict()
-        else:
-            all_traits = self.grp_d#{**self.static_traits, **self.nonstatic_traits, **self.internal_traits}
-
-        filters = {key: ds.field(key).isin(correct_iterable(value)) for key, value in all_traits.items() if
-                   value is not None and key in dset.schema.names}
-
-        combined_filter = reduce(operator.and_, filters.values())
-        table = dset.to_table(filter=combined_filter)
-        log_line(self.log, ['_internal_query: filtered table rows', table.num_rows], indent=0, log_type="debug")
-
-        # print('_internal_query: filtered table rows', table.num_rows, file=sys.stdout, flush=True)
-        # log_line(
-        #     self.log,
-        #     ["_internal_query: filtered table rows", table.num_rows],
-        #     indent=0,
-        #     log_type="debug",
-        # )
-        grp_info = {}
-        for key in self.parent_config.traits:
-            if key in table.schema.names:
-                unique_elements = pc.unique(table[key]).to_pylist()
-                grp_info[key] = unique_elements
-
-        log_line(
-            self.log,
-            ["_internal_query: initial grp_info traits:", grp_info],
-            indent=0,
-            log_type="debug",
-        )
-        # print('_internal_query: initial grp_info traits:', grp_info, file=sys.stdout, flush=True)
-
-        for key, value in all_traits.items():
-            if value is None:
-                continue
-            if key in grp_info.keys():
-                outliers = set(correct_iterable(value)) | set(grp_info[key])
-            else:
-                outliers = correct_iterable(value)
-            if outliers is not None:
-                grp_info[key] = correct_iterable(outliers)
-        # print('\ttable info schema names:', table.schema.names, table.num_rows, file=sys.stdout, flush=True)
-        # print('\t_internal_query: final grp_info traits:', grp_info, file=sys.stdout, flush=True)
-
-        log_line(
-            self.log,
-            ["table info schema names:", table.schema.names, "rows:", table.num_rows],
-            indent=1,
-            log_type="debug",
-        )
-        log_line(
-            self.log,
-            ["_internal_query: final grp_info traits:", grp_info],
-            indent=1,
-            log_type="debug",
-        )
-        try:
-            file_group_config = RunConfig(grp_info, tmp_dir=self.tmp_dir)
-            # print('\t_internal_query: created RunConfig successfully', file=sys.stdout, flush=True)
-            log_line(
-                self.log,
-                ["_internal_query: created RunConfig successfully"],
-                indent=1,
-                log_type="debug",
-            )
-        except Exception as e:
-            # print('Failed to create RunConfig in _internal_query with grp_info:', grp_info, 'Error:', e, file=sys.stdout, flush=True)
-            log_line(
-                self.log,
-                [
-                    "Failed to create RunConfig in _internal_query with grp_info:",
-                    grp_info,
-                    "Error:",
-                    e,
-                ],
-                indent=0,
-                log_type="error",
-            )
-            raise e
-        # print('\t_internal_query: RunConfig traits:', file_group_config, file=sys.stdout, flush=True)
-        # print('_internal_query: returning table rows', table.num_rows, file=sys.stdout, flush=True)
-        log_line(
-            self.log,
-            ["_internal_query: RunConfig traits:", file_group_config.to_dict()],
-            indent=1,
-            log_type="debug",
-        )
-        log_line(
-            self.log,
-            ["_internal_query: returning table rows", table.num_rows],
-            indent=0,
-            log_type="debug",
-        )
-        return file_group_config, table
-
-
-    def _get_files_v1(self, config, output_path, file_name_pattern=None, source='parquet'):
-        '''Legacy per-file implementation kept for shadow comparison. Use get_files instead.'''
-
-        grp_path_template = config.get_dynamic_attr("output.{var}.dir_structure", source)  # config.output.grp_dir_structure
-        if file_name_pattern is None:
-            file_name_pattern = config.get_dynamic_attr("output.{var}.file_format", source)
-
-        grp_path_template_filled, replaced_parts = template_replace(grp_path_template, self.static_traits)
-        log_line(self.log, ['DataGroup get_files: grp_path_template_filled:', grp_path_template_filled], indent=0, log_type="debug")
-
-        print('DataGroup get_files: grp_path_template_filled:', grp_path_template_filled, file=sys.stdout, flush=True)
-
-        known_sections = grp_path_template_filled.split('/')
-        bracket_locations = [ik for ik, section in enumerate(known_sections) if '{' in section]
-        if len(bracket_locations) > 0:
-            first_bracket_location = bracket_locations[0]
-            _dir_known_section = '/'.join(known_sections[:first_bracket_location])
-        else:
-            _dir_known_section = '/'.join(known_sections)
-
-        self.internal_traits = {key: value for key, value in self.static_traits.items() if (key not in replaced_parts)}
-        for key in self.parent_config.traits:
-            if key not in self.static_traits.keys():
-                if key not in self.nonstatic_traits.keys():
-                    self.internal_traits[key] = None
-
-        merged_unaccounted_d = {**self.internal_traits, **self.nonstatic_traits}
-
-        file_list = []
-        missing_files = {}
-        nonstatic_updates = defaultdict(set)
-        for dirpath, _, filenames in os.walk(output_path / _dir_known_section):
-            file_dir = Path(dirpath)
-            if filenames:  # only keep dirs that contain files
-                filtered_files = [file_dir/filename for filename in filenames if (f'.{source}' in filename) and
-                                    ('registry' not in filename) and ('results.parquet' != filename) and ('.md' not in filename) and ('.yaml' not in filename) and (
-                                          '.ipynb' not in filename) and ('.png' not in filename)]
-
-                for file_path in filtered_files:
-                    log_line(self.log, ['DataGroup get_files: checking file', file_path], indent=0, log_type="debug")
-
-                    try:
-                        file_traits = extract_from_pattern(file_path.name, file_name_pattern)
-                        file_dict = {**{key: self.static_traits[key] for key in replaced_parts}, **file_traits}
-
-                        fail = False
-
-                        for trait_key in merged_unaccounted_d.keys():
-                            if fail is False:
-                                if trait_key in file_dict.keys():
-                                    if merged_unaccounted_d[trait_key] is not None and file_dict[trait_key] not in correct_iterable(merged_unaccounted_d[trait_key]):
-                                        fail = True
-                                    else:
-                                        nonstatic_updates[trait_key].add(file_dict[trait_key])
-
-                        if fail is False:
-                            new_config = self.parent_config.copy()
-                            for key in self.nonstatic_traits.keys():
-                                if (key not in file_dict.keys()) or (file_dict[key] is None):
-                                    file_dict[key] = self.nonstatic_traits[key]
-                            new_config.populate(file_dict)
-
-                            try:
-                                loaded_ds = ds.dataset(str(file_path), format="parquet")
-                                log_line(self.log, ['get_files: loaded dataset for file', file_path],
-                                         indent=0, log_type="debug")
-                                # print('get_files: loaded dataset for file', file_path, file=sys.stdout, flush=True)
-                                groupconfig_file, filtered_table  = self._internal_query_v1(loaded_ds,
-                                                                                    query_config=new_config)
-                                log_line(self.log, ['get_files: filtered table rows after query', filtered_table.num_rows, 'for file', file_path,'fail status:', fail],
-                                         indent=0, log_type="debug")
-                                # print('get_files: filtered table rows after query', filtered_table.num_rows, 'for file', file_path,'fail status:', fail,file=sys.stdout, flush=True)
-                            except:
-                                filtered_table = None
-                                fail=True
-
-                            # print('fail status after filtering', fail, 'for file', file_path,'filtered_table', filtered_table, file=sys.stdout, flush=True)
-
-                            if filtered_table is None:
-                                # print('get_files: filtered table is None, failing for file', file_path, file=sys.stdout, flush=True)
-                                log_line(self.log, ['get_files: filtered table is None, failing for file', file_path],
-                                         indent=0, log_type="error")
-                                fail = True
-
-                            elif filtered_table.num_rows == 0:
-                                log_line(self.log, ['get_files: filtered table has 0 rows, failing for file', file_path],
-                                         indent=0, log_type="error")
-                                # print('get_files: filtered table has 0 rows, failing for file', file_path, file=sys.stdout, flush=True)
-                                fail = True
-
-                        if fail is False:
-                            groupconfig_file.output_path = [file_path]
-                            # print('did not fail for file', file_path, file=sys.stdout, flush=True)
-                            log_line(self.log, ['did not fail for file', file_path],
-                                     indent=0, log_type="info")
-                            file_list.append(groupconfig_file)
-
-                            for key in groupconfig_file.traits:
-                                new_values = correct_iterable(getattr(groupconfig_file, key)) if getattr(groupconfig_file, key) is not None else []
-                                for val in new_values:
-                                    nonstatic_updates[key].add(val)
-                        else:
-                            # missing_files.append((new_config, file_path))
-                            if file_path not in missing_files.keys():
-                                missing_files[file_path]=new_config
-                            else:
-                                for key in file_dict.keys():
-                                    if key not in missing_files[file_path].keys():
-                                        missing_files[file_path][key] = correct_iterable([key])
-                                    else:
-                                        missing_files[file_path][key] = list(
-                                            set(correct_iterable(missing_files[file_path][key])) | set(
-                                                correct_iterable(file_dict[key])))
-                            # print('missing files', len(missing_files), file=sys.stdout, flush=True)
-                            log_line(self.log, ['missing files', len(missing_files)],
-                                     indent=0, log_type="info")
-
-                    except ValueError as e:
-                        log_line(self.log, e,
-                                 indent=0, log_type="error")
-                        # print(e, file=sys.stderr, flush=True)
-
-        nonstatic_updates = {key: list(value) for key, value in nonstatic_updates.items()}
-        for key in nonstatic_updates.keys():
-            if len(nonstatic_updates[key]) == 1:
-                self.static_traits[key] = nonstatic_updates[key][0]
-            else:
-                self.nonstatic_traits[key] = nonstatic_updates[key]
-        self.file_list = file_list
-        # print('DataGroup get_files: found', len(self.file_list), 'files', file=sys.stdout, flush=True)
-        log_line(self.log, ['DataGroup get_files: found', len(self.file_list), 'files'],
-                 indent=0, log_type="info")
-        self.missing_files.update(missing_files)
-
-    def _pull_output_v1(self, summary=True, full=False):
-        '''Legacy per-file PyArrow implementation kept for shadow comparison. Use pull_output instead.'''
-        tables = []
-        for ij, groupconfig_file in enumerate(self.file_list):
-            filtered_table = groupconfig_file.pull_output(to_table=True)
-            log_line(self.log, ['pulled table rows', filtered_table.num_rows], indent=0, log_type="info")
-            if check_return(filtered_table) is True:
-                tables.append(filtered_table)
-        return OutputCollection(grp_specs=self.get_group_config(), in_table=tables, tmp_dir=self.tmp_dir)
-
-    ##############
-
 
     def get_metadata_as_iterables(self):
         # Mutator: normalizes every value in self.metadata to a list via correct_iterable. No return value.
@@ -1381,7 +1115,7 @@ class Output:
 
         Parameters
         ----------
-        full : pandas.DataFrame or polars.LazyFrame or polars.DataFrame or pyarrow.Table or None
+        full : pandas.DataFrame or polars.LazyFrame or polars.DataFrame or None
             The table data, if already available. A pandas DataFrame is
             converted to a polars ``LazyFrame`` immediately; other types are
             stored as-is. If ``None``, the table is loaded on first access
@@ -1406,7 +1140,6 @@ class Output:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
         if type(full) is pd.DataFrame:
-            # full = pa.Table.from_pandas(full, preserve_index=False)
             full = pl.from_pandas(full).lazy()
         self._full = full
         self.path = path
@@ -1432,9 +1165,7 @@ class Output:
         if self._full is None:
             return self
 
-        if isinstance(self._full, pa.Table):
-            self._full = pl.from_arrow(self._full).lazy()
-        elif isinstance(self._full, pd.DataFrame):
+        if isinstance(self._full, pd.DataFrame):
             self._full = pl.from_pandas(self._full).lazy()
         elif isinstance(self._full, pl.DataFrame):
             self._full = self._full.lazy()
@@ -1506,14 +1237,6 @@ class Output:
         else:
             return None
 
-        # self.get_table()
-        # if 'surr_var' in self._full.schema.names:
-        #     mask = pc.invert(pc.equal(self._full['surr_var'], 'neither'))
-        #     surr_table = self._full.filter(mask)
-        #     return surr_table
-        # else:
-        #     return None
-
     @property
     def real(self):
         """Rows where ``surr_var == 'neither'`` (real-data rows), loading the table if needed.
@@ -1531,14 +1254,6 @@ class Output:
         else:
             real_df = self._full#.collect()
         return real_df
-
-        # self.get_table()
-        # if 'surr_var' in self._full.schema.names:
-        #     mask = pc.equal(self._full['surr_var'], 'neither')
-        #     real_table = self._full.filter(mask)
-        #     return real_table
-        # else:
-        #     return self._full
 
     @property
     def table(self):
@@ -1586,8 +1301,6 @@ class Output:
                         "both _full and path are None."
                     )
                 self._full = pl.scan_parquet(str(self.path))
-                # self._full = ds.dataset(str(self.path), format="parquet").to_table()
-                # print('loaded from parquet, type:', type(self._full), file=sys.stdout, flush=True)
             elif format == "sqlite":
                 if self.path is None:
                     raise ValueError("Output.path is required for format='sqlite'.")
@@ -1602,7 +1315,6 @@ class Output:
                         df = pd.read_sql_query(self.query, con, params=self.params)
 
                 self._full = pl.from_pandas(df).lazy()
-                # self._full = pa.Table.from_pandas(df, preserve_index=False)
                 print('loaded from sqlite, type:', type(self._full), file=sys.stdout, flush=True)
         self.ensure_relation_columns()
 
@@ -1624,11 +1336,10 @@ class Output:
 
 
     def clear_table(self):
-        """Release memory held by self.table and Arrow pools."""
+        """Release memory held by this output table."""
         if self._full is not None:
             self._full = None
         gc.collect()
-        pa.default_memory_pool().release_unused()
 
     def write_table(self, tag=''):
         """Write ``self._full`` to a Parquet file at ``self.path``, generating a path if unset.
@@ -1650,8 +1361,7 @@ class Output:
         ------
         TypeError
             If ``self._full`` isn't one of the supported table types
-            (``pyarrow.Table``, ``polars.LazyFrame``, ``polars.DataFrame``,
-            ``pandas.DataFrame``).
+            (``polars.LazyFrame``, ``polars.DataFrame``, ``pandas.DataFrame``).
         """
         if tag == '':
             tag = self.type if self.type is not None else 'scratch'
@@ -1667,9 +1377,7 @@ class Output:
         if '__' not in str(self.path) and len(tag) >0:
             name = self.path.stem
             self.path = str(self.path).replace('name', f'{tag}__{name}')
-        if isinstance(self._full, pa.Table):
-            pq.write_table(self._full, self.path)
-        elif isinstance(self._full, pl.LazyFrame):
+        if isinstance(self._full, pl.LazyFrame):
             self._full.collect().write_parquet(self.path)
         elif isinstance(self._full, pl.DataFrame):
             self._full.write_parquet(self.path)
@@ -1758,8 +1466,8 @@ class OutputCollection:
         list and handled one of two ways: if every element is an
         ``OutputCollection``, their corresponding ``Output`` attributes are
         merged in via :meth:`combine_OutputCollections`; otherwise each
-        element (a ``pyarrow.Table``, ``polars.DataFrame``/``LazyFrame``,
-        ``pandas.DataFrame``, or ``Output``) is converted to a polars
+        element (a ``polars.DataFrame``/``LazyFrame``, ``pandas.DataFrame``,
+        or ``Output``) is converted to a polars
         ``LazyFrame`` and concatenated into ``self.table``.
 
         Parameters
@@ -1856,8 +1564,6 @@ class OutputCollection:
                 return obj
             if isinstance(obj, pl.DataFrame):
                 return obj.lazy()
-            if isinstance(obj, pa.Table):
-                return pl.from_arrow(obj).lazy()
             if isinstance(obj, pd.DataFrame):
                 df = obj.copy()
                 if isinstance(self.grp_config, RunConfig):
@@ -2155,8 +1861,6 @@ class OutputCollection:
                 return obj
             if isinstance(obj, pl.DataFrame):
                 return obj.lazy()
-            if isinstance(obj, pa.Table):
-                return pl.from_arrow(obj).lazy()
             if isinstance(obj, pd.DataFrame):
                 return pl.from_pandas(obj).lazy()
             return None
@@ -2279,7 +1983,6 @@ class OutputCollection:
 
     # def _draw_metric_df(self, source, table_attr='real'):
     #
-    #     tdigest_opts = pc.TDigestOptions(q=[.25, .75])
     #
     #     gb = source.group_by(["relation", 'lag', 'surr_var', 'surr_num']).aggregate(
     #         [("maxlibsize_rho", "mean"),
@@ -2980,9 +2683,7 @@ class OutputCollection:
             If ``self.table.full`` isn't one of the supported table types.
         """
         full = self.table.full
-        if isinstance(full, pa.Table):
-            full = pl.from_arrow(full)
-        elif isinstance(full, pl.LazyFrame):
+        if isinstance(full, pl.LazyFrame):
             full = full.collect()
         elif isinstance(full, pd.DataFrame):
             full = pl.from_pandas(full)
@@ -3076,9 +2777,7 @@ class OutputCollection:
             knn = int(float(knn))
 
         full = self.table.full
-        if isinstance(full, pa.Table):
-            full = pl.from_arrow(full)
-        elif isinstance(full, pl.LazyFrame):
+        if isinstance(full, pl.LazyFrame):
             full = full.collect()
         elif isinstance(full, pd.DataFrame):
             full = pl.from_pandas(full)
@@ -3143,7 +2842,7 @@ class OutputCollection:
         Calls ``clear_table()`` on each of ``table``, ``libsize_aggregated``,
         ``active_stats``, ``active_full``, ``delta_rho_stats``,
         ``delta_rho_full`` that's currently set, then runs garbage
-        collection and releases unused PyArrow memory pool space.
+        collection.
         """
         if hasattr(self, "table") and self.table is not None:
             self.table.clear_table()
@@ -3164,7 +2863,6 @@ class OutputCollection:
             self.delta_rho_full.clear_table()
 
         gc.collect()
-        pa.default_memory_pool().release_unused()
 
     def get_table_paths(self):
         """Collect the file path of each populated ``Output`` attribute that has one.

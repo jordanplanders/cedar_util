@@ -5,7 +5,7 @@ import numpy as np
 import gc
 import re
 from pathlib import Path
-import pyarrow as pa
+import polars as pl
 
 
 pd.option_context('mode.use_inf_as_na', True)
@@ -18,7 +18,6 @@ try:
     from cedarkit.utils.io import *
     from cedarkit.core.project_config import load_config
     from cedarkit.utils.cli import get_parser
-    from cedarkit.utils.tables import *
     from cedarkit.utils.cli import setup_logging, log_line
 
 except ImportError:
@@ -30,7 +29,6 @@ except ImportError:
     from utils.io.cloudjoblib import *
     from core.project_config import load_config
     from utils.cli.arg_parser import get_parser
-    from utils.tables.parquet_tools import *
     from utils.cli.logging import setup_logging, log_line
 
 import logging
@@ -119,8 +117,6 @@ def _filter_table_to_config_vars(table, allowed_vars):
     def _row_count(obj):
         if obj is None:
             return 0
-        if isinstance(obj, pa.Table):
-            return obj.num_rows
         if isinstance(obj, pl.LazyFrame):
             return obj.collect().height
         if isinstance(obj, pl.DataFrame):
@@ -136,10 +132,7 @@ def _filter_table_to_config_vars(table, allowed_vars):
     if len(allowed) != 2:
         return table
 
-    if isinstance(table, pa.Table):
-        df = table.to_pandas()
-        source_type = "arrow"
-    elif isinstance(table, pl.LazyFrame):
+    if isinstance(table, pl.LazyFrame):
         df = table.collect().to_pandas()
         source_type = "lazy"
     elif isinstance(table, pl.DataFrame):
@@ -169,8 +162,6 @@ def _filter_table_to_config_vars(table, allowed_vars):
 
     mask = lhs.isin(allowed) & rhs.isin(allowed) & (lhs != rhs)
     filtered_df = df[mask].copy()
-    if source_type == "arrow":
-        return pa.Table.from_pandas(filtered_df, preserve_index=False)
     if source_type == "lazy":
         return pl.from_pandas(filtered_df).lazy()
     if source_type == "polars":
@@ -182,8 +173,6 @@ def _apply_relationship_safeguard(output_obj, allowed_vars, name):
     def _row_count(obj):
         if obj is None:
             return 0
-        if isinstance(obj, pa.Table):
-            return obj.num_rows
         if isinstance(obj, pl.LazyFrame):
             return obj.collect().height
         if isinstance(obj, pl.DataFrame):
@@ -424,9 +413,7 @@ def process_config(grp_info, E_i, tau_i, tmp_dir, output_location, config, exist
         if full_obj is not None:
             try:
                 full_obj.get_table()
-                if isinstance(full_obj._full, pa.Table):
-                    pre_rows = full_obj._full.num_rows
-                elif isinstance(full_obj._full, pl.LazyFrame):
+                if isinstance(full_obj._full, pl.LazyFrame):
                     pre_rows = full_obj._full.collect().height
                 elif isinstance(full_obj._full, pl.DataFrame):
                     pre_rows = full_obj._full.height

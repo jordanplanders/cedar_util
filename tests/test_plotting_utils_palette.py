@@ -1,26 +1,10 @@
-import importlib.util
-from pathlib import Path
+import pandas as pd
 
-import pyarrow as pa
-
-
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "cedarkit"
-    / "utils"
-    / "plotting"
-    / "plotting_utils.py"
-)
-
-SPEC = importlib.util.spec_from_file_location("plotting_utils_module", MODULE_PATH)
-PLOTTING_UTILS = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(PLOTTING_UTILS)
-
-check_palette_syntax = PLOTTING_UTILS.check_palette_syntax
+from cedarkit.utils.plotting.plotting_utils import check_palette_syntax
 
 
-def test_arrow_relation_prefers_operation_aliases():
-    table = pa.table({"relation": ["A -> B"]})
+def test_relation_prefers_operation_aliases():
+    table = pd.DataFrame({"relation": ["A -> B"]})
     palette = {
         "A reconstructs B": "green",
         "B causes A": "blue",
@@ -32,8 +16,8 @@ def test_arrow_relation_prefers_operation_aliases():
     assert resolved["A -> B"] == "green"
 
 
-def test_arrow_relation_can_fall_back_to_reverse_causal_alias():
-    table = pa.table({"relation": ["A -> B"]})
+def test_relation_can_fall_back_to_reverse_causal_alias():
+    table = pd.DataFrame({"relation": ["A -> B"]})
     palette = {
         "B causes A": "blue",
         "A causes B": "red",
@@ -45,7 +29,7 @@ def test_arrow_relation_can_fall_back_to_reverse_causal_alias():
 
 
 def test_causal_relation_can_match_reverse_operation_alias():
-    table = pa.table({"relation": ["A causes B"]})
+    table = pd.DataFrame({"relation": ["A causes B"]})
     palette = {
         "B reconstructs A": "green",
         "A reconstructs B": "red",
@@ -57,7 +41,7 @@ def test_causal_relation_can_match_reverse_operation_alias():
 
 
 def test_reconstructs_relation_keeps_reverse_causal_alias():
-    table = pa.table({"relation": ["A reconstructs B"]})
+    table = pd.DataFrame({"relation": ["A reconstructs B"]})
     palette = {
         "B causes A": "blue",
         "A causes B": "red",

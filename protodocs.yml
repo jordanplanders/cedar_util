@@ -9,6 +9,7 @@ python_version: "3.13"
 conda_env_name: cedar_env
 dependencies:                      # pip dependencies, used in pyproject.toml and .binder/environment.yml
   - pandas
+  - pyarrow
   - scipy
   - matplotlib
   - seaborn
@@ -18,6 +19,5 @@ dependencies:                      # pip dependencies, used in pyproject.toml an
   - pyleoclim
   - pyEDM
   - polars
-  - pyarrow
 
 docs_dir: docs                     # optional, defaults to "docs" — see "Existing packages" below

@@ -4,9 +4,7 @@ import re
 import matplotlib as mpl
 import numpy as np
 import seaborn as sns
-import pyarrow as pa
 import pandas as pd
-import pyarrow.compute as pc
 import polars as pl
 import logging
 logger = logging.getLogger(__name__)
@@ -66,9 +64,7 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
     strings. Arrow notation is treated as an operation/reconstruction spelling, not as
     a forward causal spelling.
     """
-    if isinstance(table, pa.Table):
-        schema_names = table.schema.names
-    elif isinstance(table, pd.DataFrame):
+    if isinstance(table, pd.DataFrame):
         schema_names = table.columns
     else:
         schema_names = table.collect_schema().names()
@@ -79,9 +75,7 @@ def check_palette_syntax(palette, table, logger=None, default_color='gray'):
     if relation_col is None:
         raise ValueError("No relation column found in table")
 
-    if isinstance(table, pa.Table):
-        relations = [r for r in pc.unique(table[relation_col]).to_pylist() if r is not None]
-    elif isinstance(table, pd.DataFrame):
+    if isinstance(table, pd.DataFrame):
         relations = [r for r in table[relation_col].unique() if r is not None]
     else:
         relation_values = table.select(relation_col).unique()
