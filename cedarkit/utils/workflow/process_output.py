@@ -1,5 +1,6 @@
 import pandas as pd
 import logging
+import re
 logger = logging.getLogger(__name__)
 
 try:
@@ -7,6 +8,70 @@ try:
 except ImportError:
     # Fallback: imports when running as a package
     from utils.cli.logging import setup_logging, log_line
+
+
+_RELATION_PATTERNS = (
+    ("operation", "->", r"^\s*(.*?)\s*->\s*(.*?)\s*$"),
+    ("operation", "→", r"^\s*(.*?)\s*→\s*(.*?)\s*$"),
+    ("operation", "=>", r"^\s*(.*?)\s*=>\s*(.*?)\s*$"),
+    ("operation", "reconstructs", r"^\s*(.*?)\s+reconstructs\s+(.*?)\s*$"),
+    ("causal", "causes", r"^\s*(.*?)\s+causes\s+(.*?)\s*$"),
+    ("causal", "influences", r"^\s*(.*?)\s+influences\s+(.*?)\s*$"),
+)
+
+
+def parse_relation(relation: str) -> dict | None:
+    """Decode one persisted CedarKit relationship string."""
+    if relation is None:
+        return None
+    text = str(relation).strip()
+    for relation_type, token, pattern in _RELATION_PATTERNS:
+        match = re.match(pattern, text, flags=re.IGNORECASE)
+        if match:
+            lhs = match.group(1).strip()
+            rhs = match.group(2).strip()
+            if lhs and rhs:
+                return {
+                    "lhs": lhs,
+                    "rhs": rhs,
+                    "relation_type": relation_type,
+                    "token": token,
+                }
+    return None
+
+
+def infer_relation_variables(relations) -> tuple[str, str]:
+    """Infer CedarKit's two participant variable names from relation strings."""
+    names = set()
+    for relation in relations:
+        parsed = parse_relation(relation)
+        if parsed is not None:
+            names.update((parsed["lhs"], parsed["rhs"]))
+    if len(names) != 2:
+        raise ValueError(f"Could not infer exactly two variable names from relations; found: {sorted(names)}")
+    return tuple(sorted(names))
+
+
+def relation_candidates(relation: str) -> list[str] | None:
+    """Return equivalent calc, causal, and arrow spellings for palette lookup."""
+    parsed = parse_relation(relation)
+    if parsed is None:
+        return None
+    lhs, rhs = parsed["lhs"], parsed["rhs"]
+    relation_type, token = parsed["relation_type"], parsed["token"]
+    if relation_type == "operation":
+        candidates = [
+            f"{lhs} {token} {rhs}" if token in {"->", "→", "=>"} else f"{lhs} reconstructs {rhs}",
+            f"{lhs} reconstructs {rhs}", f"{lhs} -> {rhs}", f"{lhs} => {rhs}",
+            f"{rhs} influences {lhs}", f"{rhs} causes {lhs}",
+        ]
+    else:
+        candidates = [
+            f"{lhs} {token} {rhs}" if token in {"causes", "influences"} else f"{lhs} causes {rhs}",
+            f"{lhs} causes {rhs}", f"{lhs} influences {rhs}",
+            f"{rhs} reconstructs {lhs}", f"{rhs} -> {lhs}", f"{rhs} => {lhs}",
+        ]
+    return list(dict.fromkeys(candidates))
 
 def unpack_ccm_output(CrossMapList_num):
     translate_d = {'columns': 'forcing', 'target': 'responding'}

@@ -129,6 +129,66 @@ class RelationshipSide:
         }
         return {v for v in variants if v}
 
+    def _relation_variants(self, x_value, y_value):
+        """Return written and symbolic spellings for one directional variant."""
+        variants = self._mapping_variants(self.pattern_calc, x_value, y_value) | self._mapping_variants(
+            self.pattern_pres, x_value, y_value
+        )
+        if self.r_id == "r1":
+            reconstructed, reconstructor = x_value, y_value
+        else:
+            reconstructed, reconstructor = y_value, x_value
+        variants.update(
+            {
+                f"{reconstructed} -> {reconstructor}",
+                f"{reconstructed} => {reconstructor}",
+                f"{reconstructed} → {reconstructor}",
+            }
+        )
+        return variants
+
+    def relation_aliases(self):
+        """Return unsuffixed spellings that identify this directional category.
+
+        These aliases are for matching the generic ``relation`` column.  They
+        intentionally exclude surrogate-specific forms; those are represented
+        separately by ``surr_var`` and the derived ``relation_spec`` column.
+        """
+        if self.r_id == "r1":
+            reconstructed, reconstructor = self.var_x, self.var_y
+        else:
+            reconstructed, reconstructor = self.var_y, self.var_x
+
+        operation_words = {
+            "reconstructs",
+            self.operation_word,
+            self.convention_mapping.get(self.operation_word, self.operation_word),
+        }
+        influence_words = {
+            "causes",
+            "influences",
+            self.influence_word,
+            self.convention_mapping.get(self.influence_word, self.influence_word),
+        }
+        aliases = {
+            self.r_calc,
+            self.r,
+            f"{reconstructed} -> {reconstructor}",
+            f"{reconstructed} => {reconstructor}",
+            f"{reconstructed} → {reconstructor}",
+        }
+        aliases.update(
+            f"{reconstructed} {word} {reconstructor}"
+            for word in operation_words
+            if word
+        )
+        aliases.update(
+            f"{reconstructor} {word} {reconstructed}"
+            for word in influence_words
+            if word
+        )
+        return aliases
+
     @property
     def r(self):
         """This side's presentation-facing sentence, e.g. ``'y causes x'``.
@@ -189,18 +249,11 @@ class RelationshipSide:
         target_surr_rx = self.surr_rx_calc
         target_surr_ry = self.surr_ry_calc
         mapping = {}
-        for relation in self._mapping_variants(self.pattern_calc, self.var_x, self.var_y) | self._mapping_variants(
-            self.pattern_pres, self.var_x, self.var_y
-        ):
+        for relation in self._relation_variants(self.var_x, self.var_y):
             mapping[relation] = target_main
-        for relation in self._mapping_variants(self.pattern_calc, f"{self.var_x} (surr)", self.var_y) | self._mapping_variants(
-            self.pattern_pres, f"{self.var_x} (surr)", self.var_y
-        ):
+        for relation in self._relation_variants(f"{self.var_x} (surr)", self.var_y):
             mapping[relation] = target_surr_rx
-        for relation in (
-            self._mapping_variants(self.pattern_calc, self.var_x, f"{self.var_y} (surr)")
-            | self._mapping_variants(self.pattern_pres, self.var_x, f"{self.var_y} (surr)")
-        ):
+        for relation in self._relation_variants(self.var_x, f"{self.var_y} (surr)"):
             mapping[relation] = target_surr_ry
         return mapping
 
@@ -211,18 +264,11 @@ class RelationshipSide:
         target_surr_rx = self.surr_rx
         target_surr_ry = self.surr_ry
         mapping = {}
-        for relation in self._mapping_variants(self.pattern_calc, self.var_x, self.var_y) | self._mapping_variants(
-            self.pattern_pres, self.var_x, self.var_y
-        ):
+        for relation in self._relation_variants(self.var_x, self.var_y):
             mapping[relation] = target_main
-        for relation in self._mapping_variants(self.pattern_calc, f"{self.var_x} (surr)", self.var_y) | self._mapping_variants(
-            self.pattern_pres, f"{self.var_x} (surr)", self.var_y
-        ):
+        for relation in self._relation_variants(f"{self.var_x} (surr)", self.var_y):
             mapping[relation] = target_surr_rx
-        for relation in (
-            self._mapping_variants(self.pattern_calc, self.var_x, f"{self.var_y} (surr)")
-            | self._mapping_variants(self.pattern_pres, self.var_x, f"{self.var_y} (surr)")
-        ):
+        for relation in self._relation_variants(self.var_x, f"{self.var_y} (surr)"):
             mapping[relation] = target_surr_ry
         return mapping
 
@@ -476,3 +522,16 @@ class Relationship:
         mapping.update(self._r1_side.to_pres_mapping)
         mapping.update(self._r2_side.to_pres_mapping)
         return mapping
+
+    def relation_aliases(self, relationship_id):
+        """Return all generic, unsuffixed spellings for ``'r1'`` or ``'r2'``.
+
+        This supports category filtering against an output table's ``relation``
+        column.  Surrogate-specific spellings belong in ``relation_spec`` and
+        are deliberately not included here.
+        """
+        if relationship_id == "r1":
+            return self._r1_side.relation_aliases()
+        if relationship_id == "r2":
+            return self._r2_side.relation_aliases()
+        raise ValueError(f"Unknown relationship category {relationship_id!r}; use 'r1' or 'r2'.")
