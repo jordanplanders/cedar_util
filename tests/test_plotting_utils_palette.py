@@ -1,22 +1,6 @@
-import importlib.util
-from pathlib import Path
-
 import pandas as pd
 
-
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "cedarkit"
-    / "utils"
-    / "plotting"
-    / "plotting_utils.py"
-)
-
-SPEC = importlib.util.spec_from_file_location("plotting_utils_module", MODULE_PATH)
-PLOTTING_UTILS = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(PLOTTING_UTILS)
-
-check_palette_syntax = PLOTTING_UTILS.check_palette_syntax
+from cedarkit.utils.plotting.plotting_utils import check_palette_syntax
 
 
 def test_relation_prefers_operation_aliases():
