@@ -282,7 +282,7 @@ class GridPlot:
             ticker = mpl.ticker.MaxNLocator(nbins=n_ticks)
 
 
-        if decimals is not None:
+        if (decimals is not None) & ((hi > 0) and (lo < 0)):
             try:
                 amp = hi-lo
                 tick_delta = amp/(n_ticks-1)
@@ -305,10 +305,11 @@ class GridPlot:
             except:
                 pass
         else:
-            decimals = np.abs(np.floor(np.log10(np.abs(lo))))
-            if np.isnan(decimals):
-                decimals = np.abs(np.floor(np.log10(np.abs(hi))))
-            decimals = int(decimals) - 1
+            if decimals is None:
+                decimals = np.abs(np.floor(np.log10(np.abs(lo))))
+                if np.isnan(decimals):
+                    decimals = np.abs(np.floor(np.log10(np.abs(hi))))
+                decimals = int(decimals) - 1
             lo_round = np.round(lo, decimals=decimals)
             hi_round = np.round(hi, decimals=decimals)
             rec_ticks = ticker.tick_values(lo, hi)
