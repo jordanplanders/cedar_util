@@ -21,7 +21,6 @@ There is also an optional Conda environment in `env.yml` for projects that want 
 Core dependencies currently include:
 
 - `pandas`
-- `pyarrow`
 - `matplotlib`
 - `seaborn`
 - `PyYAML`

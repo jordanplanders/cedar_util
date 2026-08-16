@@ -5,9 +5,6 @@ import re
 import sys
 import time
 from pathlib import Path
-import pyarrow as pa
-import pyarrow.dataset as ds
-import pyarrow.compute as pc
 import polars as pl
 
 import numpy as np

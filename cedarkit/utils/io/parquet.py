@@ -1,20 +1,18 @@
 import sys
 import time
 from collections import defaultdict
+import hashlib
+import json
 from pathlib import Path
 import os
 import re
-import gc
-import pyarrow as pa
-import pyarrow.dataset as ds
-import pyarrow.parquet as pq
 import pandas as pd
+import polars as pl
 import logging
 logger = logging.getLogger(__name__)
 
 try:
     from cedarkit.utils.routing import template_replace, parse_surr_label
-    from cedarkit.utils.tables import drop_duplicates, make_uid
     from cedarkit.utils.cli import setup_logging, log_line
     from cedarkit.utils.workflow.process_output import parse_relation
     from cedarkit.utils.routing.paths import (
@@ -24,7 +22,6 @@ try:
     )
 except ImportError:
     from utils.routing.file_name_parsers import template_replace, parse_surr_label
-    from utils.tables.parquet_tools import drop_duplicates, make_uid
     from utils.cli.logging import setup_logging, log_line
     from utils.workflow.process_output import parse_relation
     from utils.routing.paths import (
@@ -119,6 +116,22 @@ def setup_conversion_from_calc_grp(calc_location, config, calc_grp_d, output_dir
     target_var = config.target.var
 
     return {'e_tau_source_dir': e_tau_dir_read, 'e_tau_dir_write':e_tau_dir_write, 'parts_d': parts_d, 'col_var': col_var, 'target_var': target_var, 'config': config}
+
+
+_UID_COLUMNS = (
+    "E", "tau", "Tp", "lag", "pset_id", "surr_var", "surr_num",
+    "x_id", "x_age_model_ind", "x_var", "y_id", "y_age_model_ind", "y_var",
+)
+
+
+def _make_uid(row):
+    payload = {
+        column: None if pd.isna(row[column]) else row[column]
+        for column in _UID_COLUMNS
+    }
+    return hashlib.blake2b(
+        json.dumps(payload, sort_keys=True).encode(), digest_size=16
+    ).hexdigest()
 
 
 def package_calc_grp_results_to_parquet(
@@ -224,10 +237,15 @@ def package_calc_grp_results_to_parquet(
 
         # check existing parquet to see what has been recorded
         if write_path_file_valid is True:
-            existing_parquet_table = ds.dataset(str(write_path), format="parquet").to_table()
-            print('\texisting_parquet_table rows:', existing_parquet_table.num_rows,existing_parquet_table.schema.names, file=sys.stdout, flush=True)
-            recorded_parquet = drop_duplicates(existing_parquet_table, on=['E', 'tau', 'lag', 'Tp', 'knn', 'surr_var', 'surr_num', 'x_id', 'y_id'])
-            recorded_parquet_df = recorded_parquet.to_pandas()
+            recorded_parquet_df = (
+                pl.read_parquet(write_path)
+                .unique(
+                    subset=['E', 'tau', 'lag', 'Tp', 'knn', 'surr_var', 'surr_num', 'x_id', 'y_id'],
+                    maintain_order=True,
+                )
+                .to_pandas()
+            )
+            print('\texisting_parquet_table rows:', len(recorded_parquet_df), recorded_parquet_df.columns.tolist(), file=sys.stdout, flush=True)
             recorded_parquet_df = recorded_parquet_df.rename(columns = {'x_id':'col_var_id', 'y_id':'target_var_id'})
             existing.append(write_path)
 
@@ -351,32 +369,23 @@ def package_calc_grp_results_to_parquet(
 
         res = pd.concat(records, ignore_index=True)
 
-        res["uid"] = res.apply(make_uid, axis=1)
+        res["uid"] = res.apply(_make_uid, axis=1)
 
         # light typing
         for c in ("E","tau","Tp","lag","LibSize","surr_num","x_age_model_ind","y_age_model_ind"):
             if c in res.columns:
                 res[c] = pd.to_numeric(res[c], errors="coerce").astype("Int64")
-        new_table = pa.Table.from_pandas(res, preserve_index=False)
+        new_table = pl.from_pandas(res)
 
         if write_path.exists() is True:
-            existing_table = pq.read_table(write_path)
-            print('Existing rows in', write_path, ':', existing_table.num_rows, file=sys.stdout, flush=True)
-            new_table = pa.concat_tables([existing_table, new_table], promote=True)
+            existing_table = pl.read_parquet(write_path)
+            print('Existing rows in', write_path, ':', existing_table.height, file=sys.stdout, flush=True)
+            new_table = pl.concat([existing_table, new_table], how="diagonal_relaxed")
 
-            existing_table=None
-            gc.collect()
-            pa.default_memory_pool().release_unused()
-
-        print('\tCombined rows:', new_table.num_rows, file=sys.stdout, flush=True)
+        print('\tCombined rows:', new_table.height, file=sys.stdout, flush=True)
         print('\t', write_path, file=sys.stdout, flush=True)
         write_path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(new_table,
-                       write_path, compression="zstd", use_dictionary=True)
-
-        new_table = None
-        gc.collect()
-        pa.default_memory_pool().release_unused()
+        new_table.write_parquet(write_path, compression="zstd")
 
         write_paths.append(write_path)
 

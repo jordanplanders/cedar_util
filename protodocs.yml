@@ -18,6 +18,5 @@ dependencies:                      # pip dependencies, used in pyproject.toml an
   - pyleoclim
   - pyEDM
   - polars
-  - pyarrow
 
 docs_dir: docs                     # optional, defaults to "docs" — see "Existing packages" below

@@ -6,8 +6,6 @@ from matplotlib import pyplot as plt
 from matplotlib.markers import MarkerStyle
 from matplotlib.patches import Polygon, Rectangle
 import logging
-import pyarrow as pa
-import pyarrow.compute as pc
 import polars as pl
 
 logger = logging.getLogger(__name__)
@@ -135,12 +133,6 @@ class BasePlot:
             self.ax = plt.subplots(figsize=(8, 6))[1]
 
     def _pull_df(self, output, columns=None):
-        if isinstance(output, pa.Table):
-            print('output is a pa.Table')
-            if columns is not None:
-                output = output.select(columns)
-            return output.to_pandas()
-
         if isinstance(output, pl.LazyFrame):
             if columns is not None:
                 output = output.select(columns)
@@ -229,11 +221,7 @@ class BasePlot:
 
             mapped_relation_cats = list(dict.fromkeys(mapped_relation_cats))
 
-            if isinstance(output, pa.Table):
-                mask = pc.is_in(output["relation"], value_set=pa.array(mapped_relation_cats))
-                output = output.filter(mask)
-            else:
-                output = output.filter(pl.col("relation").is_in(mapped_relation_cats))
+            output = output.filter(pl.col("relation").is_in(mapped_relation_cats))
 
         requested_columns = list(columns) if columns is not None else self.default_pull_columns(output_type)
         source_columns = list(dict.fromkeys([
@@ -442,10 +430,7 @@ class LibSizeRhoPlot(BasePlot):
             outputgrp.libsize_aggregated.get_table()
 
 
-        if isinstance(outputgrp.libsize_aggregated._full, pa.Table):
-            schema_names = outputgrp.libsize_aggregated._full.schema.names
-        else:
-            schema_names = outputgrp.libsize_aggregated._full.collect_schema().names()
+        schema_names = outputgrp.libsize_aggregated._full.collect_schema().names()
         has_surrogates = "surr_var" in schema_names
         if has_surrogates:
             surrogate_check = outputgrp.libsize_aggregated._full.select(
@@ -828,10 +813,7 @@ class LagPlot(BasePlot):
         self.highlight_points(df, hue='relation', edgecolor=self.bottom_val_color, legend=False)
 
     def get_surrogate_nums(self, dset):
-        if isinstance(dset, pa.Table):
-            gb = dset.group_by(["surr_var"]).aggregate([("surr_num", "count")])
-            df = gb.to_pandas()
-        elif isinstance(dset, pl.LazyFrame):
+        if isinstance(dset, pl.LazyFrame):
             df = dset.group_by("surr_var").agg(pl.col("surr_num").count().alias("surr_num_count")).collect().to_pandas()
         elif isinstance(dset, pl.DataFrame):
             df = dset.group_by("surr_var").agg(pl.col("surr_num").count().alias("surr_num_count")).to_pandas()
