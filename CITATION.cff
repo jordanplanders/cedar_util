@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "CedarKit"
+abstract: >-
+  CedarKit is a toolkit supporting Convergent Cross Mapping (CCM) and
+  Empirical Dynamic Modeling (EDM) analysis, built on top of pyEDM. 
+  It handles project configuration, running and organizing CCM computations, 
+  post-processing outputs (aggregating skill-vs-library-size curves, 
+  choosing optimal lags), and visualizing results of both individual relationships 
+  and multiple relationship systems, with support for both local and HPC workflows.
+type: software
+version: 2026.05.02
+date-released: "2026-05-02"
+license: GPL-3.0
+repository-code: "https://github.com/jordanplanders/cedar_util"
+url: "https://github.com/jordanplanders/cedar_util"
+keywords:
+  - convergent cross mapping
+  - empirical dynamic modeling
+  - causal inference
+  - time series analysis
+  - pyEDM
+  - paleoclimate
+authors:
+  - family-names: Landers
+    given-names: Jordan
+    orcid: "https://orcid.org/0000-0001-9772-7617"
+    affiliation: "University of Southern California"
