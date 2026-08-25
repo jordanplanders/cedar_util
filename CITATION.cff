@@ -1,13 +1,13 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
 title: "CedarKit"
-abstract: >-
+abstract:
   CedarKit is a toolkit supporting Convergent Cross Mapping (CCM) and
-  Empirical Dynamic Modeling (EDM) analysis, built on top of pyEDM. 
-  It handles project configuration, running and organizing CCM computations, 
-  post-processing outputs (aggregating skill-vs-library-size curves, 
-  choosing optimal lags), and visualizing results of both individual relationships 
-  and multiple relationship systems, with support for both local and HPC workflows.
+  Empirical Dynamic Modeling (EDM) analysis, built on top of pyEDM. It
+  handles project configuration, running and organizing CCM computations,
+  post-processing outputs (aggregating skill-vs-library-size curves,
+  finding candidate lag peaks, selecting target lags), and visualizing
+  results, with support for both local and HPC workflows.
 type: software
 version: 2026.05.02
 date-released: "2026-05-02"
