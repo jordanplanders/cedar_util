@@ -66,6 +66,30 @@ def _install_unpickling_aliases():
         setattr(mod, attr, cls)
 
 def joblib_cloud_load(path):
+    """Load a joblib file whose contents were serialized with cloudpickle.
+
+    Registers backward-compatible module aliases (see
+    ``_install_unpickling_aliases``) before unpickling, so joblib files
+    created by older CedarKit versions — whose classes lived at paths like
+    ``data_obj.data_objects.DataGroup`` rather than their current
+    ``cedarkit.core.data_objects.DataGroup`` — still unpickle correctly.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Path to a joblib file previously written by
+        ``joblib_cloud_atomic_dump`` (or the older, non-atomic
+        ``cloudpickle.dumps`` + ``joblib.dump`` pattern it replaced).
+
+    Returns
+    -------
+    object
+        The unpickled object.
+
+    See Also
+    --------
+    joblib_cloud_atomic_dump : Writes files in the format this function reads.
+    """
     _install_unpickling_aliases()     # must be before loads()
     blob = joblib.load(path)          # bytes from cloudpickle.dumps(obj)
     return cloudpickle.loads(blob)
@@ -84,6 +108,29 @@ def _atomic_write(path, writer):
 
 
 def joblib_cloud_atomic_dump(obj, path, *, compress=3, protocol=pickle.HIGHEST_PROTOCOL):
+    """Serialize an object with cloudpickle and write it atomically via joblib.
+
+    Cloudpickle handles objects joblib/pickle alone can't (e.g. objects
+    defined in a notebook's ``__main__``, or closures); the write itself
+    goes to a temporary file in the same directory and is moved into place
+    with ``os.replace`` (atomic on POSIX), so a crash mid-write can't leave
+    ``path`` truncated.
+
+    Parameters
+    ----------
+    obj : object
+        Object to serialize. Anything ``cloudpickle.dumps`` can handle.
+    path : str or pathlib.Path
+        Destination file path.
+    compress : int, default 3
+        Compression level passed to ``joblib.dump``.
+    protocol : int, default pickle.HIGHEST_PROTOCOL
+        Pickle protocol passed to ``cloudpickle.dumps``.
+
+    See Also
+    --------
+    joblib_cloud_load : Reads files written by this function.
+    """
     blob = cloudpickle.dumps(obj, protocol=protocol)
     _atomic_write(path, lambda tmp: joblib.dump(blob, tmp, compress=compress))
 

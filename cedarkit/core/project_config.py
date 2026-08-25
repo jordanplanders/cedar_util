@@ -134,7 +134,7 @@ class ProjectConfig:
         lossy by design for those two — ``file_path`` because it's
         re-derived rather than stored in the dict form, and
         ``_data_vars_loaded`` because it's bookkeeping from
-        :func:`load_config`, not config data.
+        `load_config`, not config data.
 
         Returns
         -------
@@ -155,7 +155,7 @@ class ProjectConfig:
         """Write this config's ``to_dict()`` representation back to YAML.
 
         Only works when called on the root instance, since only the root
-        has ``self.file_path`` set (see :meth:`__init__`).
+        has ``self.file_path`` set (see `__init__`).
 
         Raises
         ------
@@ -290,7 +290,7 @@ def load_config(yaml_file, top_level_yaml=None, var_dir_name: str = "data_var_co
 
     If ``data_vars`` is present, each listed variable id is resolved to a
     ``<var_id>.yaml``/``.yml`` file under ``yaml_file.parent / var_dir_name``
-    (see :func:`_find_var_file`). If that file's top level is a single-key
+    (see `_find_var_file`). If that file's top level is a single-key
     mapping, it is unwrapped to that key's value (i.e. a file shaped like
     ``{var_id: {...}}`` is treated as just ``{...}``). Each resolved
     variable's dict is merged into ``cfg`` under its own var_id (raising
@@ -314,7 +314,7 @@ def load_config(yaml_file, top_level_yaml=None, var_dir_name: str = "data_var_co
         The merged configuration, with ``file_path`` set to ``yaml_file``'s
         resolved path and a ``pal`` attribute holding the merged palette. If
         any variables were merged in, ``_data_vars_loaded`` holds their ids
-        (excluded from :meth:`ProjectConfig.to_dict`).
+        (excluded from `ProjectConfig.to_dict`).
     """
     yaml_path = Path(yaml_file).resolve()
     cfg = _load_yaml(yaml_path)
@@ -449,10 +449,10 @@ def load_proj_config(cfg: Any) -> ProjectConfig:
     ----------
     cfg : ProjectConfig or str or pathlib.Path or Mapping
         Already a ``ProjectConfig`` (returned as-is); or a path to a
-        ``.yaml``/``.yml`` file (loaded via :func:`load_config`) or a
+        ``.yaml``/``.yml`` file (loaded via `load_config`) or a
         ``.json`` file (loaded and wrapped directly); or a mapping (wrapped
         directly, without the YAML-specific palette/data-vars merging that
-        :func:`load_config` does).
+        `load_config` does).
 
     Returns
     -------

@@ -48,11 +48,30 @@ def setup_logging(
     default_level: str = "INFO",
     force: bool = False,
 ) -> None:
-    """
-    Configure root logger once:
-      - level from env
-      - stdout for < ERROR
-      - stderr for >= ERROR
+    """Configure the root logger once, splitting output by level across streams.
+
+    Sets the root logger's level from an environment variable, and attaches
+    two stream handlers: one for stdout carrying everything below ERROR
+    (DEBUG/INFO/WARNING), one for stderr carrying ERROR and CRITICAL. A
+    no-op if the root logger already has handlers and ``force`` is
+    ``False``, so it's safe to call this at the top of every module without
+    duplicating handlers.
+
+    Parameters
+    ----------
+    env_var : str, default 'CEDAR_LOG_LEVEL'
+        Environment variable read for the log level name (e.g. ``'DEBUG'``).
+    default_level : str, default 'INFO'
+        Level name used if ``env_var`` isn't set, or doesn't match a real
+        logging level.
+    force : bool, default False
+        If ``True``, remove any existing handlers on the root logger (e.g.
+        ones added by Jupyter) and reconfigure from scratch. If ``False``
+        and handlers are already present, this function does nothing.
+
+    See Also
+    --------
+    log_line : Emits a log message once logging is configured.
     """
     root = logging.getLogger()
 
@@ -96,13 +115,29 @@ def log_line(
     indent: int = 0,
     log_type: str = "info",
 ) -> None:
-    """
-    Drop-in-ish replacement for your print_log_line, but via logging.
+    """Log a message (or list of messages) through ``logger``, tab-indented.
 
-    logger   : logger instance (module- or class-level)
+    A thin wrapper that joins list messages with commas, prefixes the
+    result with ``indent`` tab characters, and dispatches to the named
+    level method on ``logger`` — used throughout CedarKit in place of the
+    module's earlier ``print``-based logging.
+
+    Parameters
+    ----------
+    logger : logging.Logger
+        Logger to write to (typically a module- or class-level logger).
     log_line : str or list
-    indent   : indentation level (tabs)
-    log_type : 'debug', 'info', 'warning', 'error', 'critical'
+        Message to log. If a list, elements are stringified and joined with
+        ``', '``.
+    indent : int, default 0
+        Number of tab characters to prefix the message with.
+    log_type : {'debug', 'info', 'warning', 'error', 'critical'}, default 'info'
+        Logger method to call. Falls back to ``logger.info`` if the name
+        isn't a valid method.
+
+    See Also
+    --------
+    setup_logging : Configures the handlers this function's output goes to.
     """
     if isinstance(log_line, list):
         log_line = ", ".join(map(str, log_line))

@@ -88,6 +88,47 @@ def get_parser():
 
 def parse_flags(args, default_percent_threshold=.05, default_function_flag='binding',
                 default_res_flag='', default_second_suffix=''):
+    """Interpret the free-form ``--flags`` list from ``get_parser`` into typed settings.
+
+    ``args.flags`` is a list of ad hoc string tokens (see ``-l/--flags`` in
+    ``get_parser``); this pulls out the handful of conventions scripts use
+    it for: a weighting-function name, a coarse-resolution marker, and up to
+    two numeric values (a percent threshold and a "second suffix" count).
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI arguments, as returned by ``get_parser().parse_args()``.
+        Only ``args.flags`` is read.
+    default_percent_threshold : float, default 0.05
+        Value returned for ``percent_threshold`` if no numeric flag ``<= 1``
+        is found in ``args.flags``.
+    default_function_flag : str, default 'binding'
+        Value returned for ``function_flag`` if neither ``'binding'`` nor
+        ``'inverse_exponential'`` appears in ``args.flags``.
+    default_res_flag : str, default ''
+        Value returned for ``res_flag`` if no flag containing ``'coarse'``
+        is found.
+    default_second_suffix : str, default ''
+        Value returned for ``second_suffix`` if no numeric flag ``> 1`` is
+        found in ``args.flags``.
+
+    Returns
+    -------
+    tuple of (float, str, str, str)
+        ``(percent_threshold, function_flag, res_flag, second_suffix)``.
+        ``function_flag`` is ``'inverse_exponential'`` or ``'binding'`` if
+        present in ``args.flags``, else the default. ``res_flag`` is
+        ``'_' + flag`` for the first flag containing ``'coarse'``, else the
+        default. Numeric tokens in ``args.flags`` are split by magnitude:
+        the first value ``<= 1`` becomes ``percent_threshold``; the first
+        value ``> 1`` becomes ``second_suffix``, formatted as
+        ``f'_{int(value)}'``.
+
+    See Also
+    --------
+    get_parser : Builds the parser that produces ``args.flags``.
+    """
     percent_threshold = None
     function_flag = None
     res_flag = None

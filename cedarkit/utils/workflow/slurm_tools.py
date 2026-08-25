@@ -90,29 +90,88 @@ def make_slurm_script(E_grp, new_param_file, new_file_name, slurm_dir, source_fi
 def gen_parameters_slurm2(proj_dir, output_location, comb_df, min_num_to_run=8, config=None,parameter_dir=None, surr=False, surr_num=201, groupby_var = None, testmode=True,
                            tp_vals = [1], knn_vals = [20], suffix = '', append=False, proj_prefix= 'eevw', default_calc_length=28,surr_vars=None,sample=150,return_combined=False,
                                           source='csv', check='intermediate', ntasks=42, max_time_ask=300, verbose= False):
-    """
-    Generate slurm scripts for running CCM parameters based on combinations in comb_df.
+    """Check which (E, tau) combinations still need runs, and emit slurm scripts for them.
 
-    :param proj_dir: Path to the project directory.
-    :param output_location: Path to the output directory where results will be saved.
-    :param comb_df: DataFrame containing combinations of parameters to run.
-    :param config: Configuration object. If None, it will be loaded from proj_dir/proj_config.yaml.
-    :param parameter_dir: Directory where parameter files are stored. If None, defaults to 'parameters' in proj_dir.
-    :param surr: Boolean indicating whether to include surrogates in the parameters.
-    :param surr_num: Number of surrogate variables to consider.
-    :param groupby_var: List of variables to group by when generating parameters.
-    :param testmode: Boolean indicating whether to run in test mode (no actual generation).
-    :param tp_vals: List of values for the Tp parameter.
-    :param knn_vals: List of values for the knn parameter.
-    :param suffix: Suffix to append to the generated parameter files.
-    :param append: Boolean indicating whether to append to existing files.
-    :param proj_prefix: Prefix to use for the project name in the generated files.
-    :param default_calc_length: Default calculation length for the CCM.
-    :param ntasks: Number of tasks to run in parallel.
-    :param max_time_ask: Maximum time to ask for in the slurm script.
-    :param verbose: Boolean indicating whether to print verbose output.
-    :return: if testmode is True, returns the number of unique parameter combinations; otherwise, generates slurm scripts and prints prompt.
+    Two-stage pipeline: first resolves which output location to check for
+    already-computed results (``_resolve_check_output_location``, via
+    ``source``/``check``) and calls ``get_assessed_param_picks`` to filter
+    ``comb_df`` down to what's still outstanding; then calls
+    ``gen_slurm_param_from_params`` to write parameter CSVs and slurm scripts
+    for those combinations, printing its status messages.
 
+    Parameters
+    ----------
+    proj_dir : str or pathlib.Path
+        Project root directory.
+    output_location : str or pathlib.Path
+        Directory where parameter/slurm files are written.
+    comb_df : pandas.DataFrame
+        Candidate parameter combinations to check and (if needed) run, as
+        produced by ``make_comb_df``.
+    min_num_to_run : int, default 8
+        Minimum number of outstanding parameters in a group before a slurm
+        script is actually generated for it; groups below this threshold are
+        flagged as "please consolidate" instead.
+    config : cedarkit.core.project_config.ProjectConfig, optional
+        Project configuration. Loaded from ``proj_dir/proj_config.yaml`` if
+        ``None``.
+    parameter_dir : str or pathlib.Path, optional
+        Directory for parameter files. Defaults to ``'parameters'`` under
+        ``proj_dir`` if ``None``.
+    surr : bool, default False
+        Whether to include surrogate runs in the generated parameters.
+    surr_num : int, default 201
+        Number of surrogate draws to consider when ``surr`` is ``True``.
+    groupby_var : list of str, optional
+        Variables to group combinations by when checking completeness and
+        writing scripts.
+    testmode : bool, default True
+        If ``True``, checks are performed but no slurm scripts are actually
+        written.
+    tp_vals : list of int, default [1]
+        Prediction-horizon (``Tp``) values to sweep.
+    knn_vals : list of int, default [20]
+        Number-of-neighbors values to sweep.
+    suffix : str, default ''
+        Appended to generated parameter/script filenames.
+    append : bool, default False
+        Whether to append to existing parameter files rather than
+        overwriting them.
+    proj_prefix : str, default 'eevw'
+        Prefix used in generated file names.
+    default_calc_length : int, default 28
+        Default requested slurm job length (see ``make_slurm_script``).
+    surr_vars : list of str, optional
+        Surrogate variable names to include, if different from the
+        defaults inferred elsewhere.
+    sample : int, default 150
+        Row-count threshold passed through to ``get_assessed_param_picks``
+        (as ``row_count_threshold``) for deciding a parameter set already
+        has enough completed rows.
+    return_combined : bool, default False
+        If ``True``, return the ``combined_df`` produced by
+        ``get_assessed_param_picks`` instead of ``None``.
+    source : {'csv', 'parquet'}, default 'csv'
+        Output format to check for existing results.
+    check : {'intermediate', 'consolidated'}, default 'intermediate'
+        Whether to check per-run intermediate output or the consolidated
+        output directory.
+    ntasks : int, default 42
+        Slurm ``--ntasks`` value written into generated scripts.
+    max_time_ask : int, default 300
+        Maximum slurm walltime (minutes) requested in generated scripts.
+    verbose : bool, default False
+        Whether to print verbose status output.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        ``combined_df`` if ``return_combined`` is ``True``, otherwise
+        ``None`` — regardless of ``testmode``.
+
+    See Also
+    --------
+    make_comb_df : Builds the ``comb_df`` this function consumes.
     """
     print('gen_parameters_slurm2', groupby_var)
     check_output_location = _resolve_check_output_location(proj_dir, output_location, config, source, check)

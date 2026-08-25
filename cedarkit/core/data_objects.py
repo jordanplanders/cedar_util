@@ -105,7 +105,7 @@ def correct_iterable(obj):
 def get_static(obj):
     """Extract a single static value from a possibly-iterable trait value.
 
-    The approximate inverse of :func:`correct_iterable`: collapses a
+    The approximate inverse of `correct_iterable`: collapses a
     single-element iterable back to its scalar, but treats genuinely
     multi-valued (non-static) iterables as having no single answer.
 
@@ -203,7 +203,7 @@ def compute_delta_rho_grp(
       above per-row values, for downstream distributional analysis
 
     Used by ``OutputCollection.calc_delta_rho`` (called ``OutputGrp`` in
-    earlier versions of this docstring; see :class:`OutputCollection`).
+    earlier versions of this docstring; see `OutputCollection`).
 
     Parameters
     ----------
@@ -212,7 +212,7 @@ def compute_delta_rho_grp(
         (int/float) and ``'rho'`` (float) columns.
     gd : dict
         Group descriptors (e.g. trait values identifying this group) copied
-        into each output row/column via :func:`get_static`.
+        into each output row/column via `get_static`.
     stats : bool, optional
         Whether to compute the summary statistics table. Default is ``True``.
     full : bool, optional
@@ -354,13 +354,13 @@ class RunConfig:
     being related (``col_var``/``target_var`` and their resolved
     ``*_var_obj`` objects), surrogate-run bookkeeping (``surr_num``,
     ``surr_var``), and output file location. The set of "trait" attributes
-    (see :attr:`traits`) is what gets used for filtering/grouping output
+    (see `traits`) is what gets used for filtering/grouping output
     files elsewhere in this module.
 
     A single ``RunConfig`` can represent either one fully-specified run, or
     a group of runs sharing some traits (when a "trait" attribute is set to
-    a list rather than a scalar — see :func:`correct_iterable`/
-    :func:`get_static`). Subclassed by :class:`CMConfigBase`
+    a list rather than a scalar — see `correct_iterable`/
+    `get_static`). Subclassed by `CMConfigBase`
     (`CCMConfig`'s base) and used directly as `DataGroup.parent_config`.
     """
 
@@ -370,7 +370,7 @@ class RunConfig:
         Parameters
         ----------
         grp_d : dict
-            Trait values to set, passed to :meth:`populate`.
+            Trait values to set, passed to `populate`.
         tmp_dir : str or pathlib.Path, optional
             Temporary directory for intermediate files. Default is ``None``.
         **_ignored_kwargs
@@ -438,7 +438,7 @@ class RunConfig:
         in ``grp_d`` (preferring ``Tp``) is written back into ``grp_d``
         under *both* keys, so they end up equal regardless of which name
         the caller used (see the ``# eventually factor out Tp in favor of
-        tp`` note in :meth:`__init__`). If ``self.pset_id`` is still unset
+        tp`` note in `__init__`). If ``self.pset_id`` is still unset
         after that, it falls back to ``grp_d.get('id')``.
 
         Parameters
@@ -515,7 +515,7 @@ class RunConfig:
         """Names of all instance attributes except ``output_path``, ``output_format``, ``output_query``, ``output_params``, and ``log``.
 
         This is the attribute set used for filtering/grouping output files
-        elsewhere (:meth:`to_dict`, :meth:`pull_output`, :meth:`trait_hierarchy`,
+        elsewhere (`to_dict`, `pull_output`, `trait_hierarchy`,
         and `DataGroup`/`OutputCollection` methods) — i.e. everything that
         describes *what run this is*, excluding output-location bookkeeping.
 
@@ -553,7 +553,7 @@ class RunConfig:
         Reads ``self.output_path[0]`` — as a SQLite query (if
         ``self.output_format == 'sqlite'``, using ``self.output_query``/
         ``self.output_params``) or as a Polars Parquet scan filtered by
-        :meth:`to_dict`'s trait values otherwise.
+        `to_dict`'s trait values otherwise.
 
         Parameters
         ----------
@@ -709,24 +709,24 @@ class DataGroup:
     ``grp_d``'s trait values are split on construction into
     ``static_traits`` (traits with exactly one value) and
     ``nonstatic_traits`` (traits with zero or multiple values, i.e. ones
-    that vary across the group). :meth:`get_files` then walks the output
+    that vary across the group). `get_files` then walks the output
     directory tree to find files matching those traits and builds one
-    ``RunConfig`` per matching file (``file_list``); :meth:`pull_output`
+    ``RunConfig`` per matching file (``file_list``); `pull_output`
     reads and concatenates those files' data into an ``OutputCollection``.
 
     Attributes
     ----------
     file_list : list[RunConfig]
-        One entry per matched output file, populated by :meth:`get_files`.
+        One entry per matched output file, populated by `get_files`.
     grp_d : dict
         The original group-level trait dict passed to ``__init__``.
     static_traits : dict
-        Traits from ``grp_d`` with exactly one value (see :func:`get_static`).
+        Traits from ``grp_d`` with exactly one value (see `get_static`).
     nonstatic_traits : dict
         Traits from ``grp_d`` with zero or multiple values.
     internal_traits : dict
         Traits whose values are determined during file retrieval rather
-        than known up front (populated by :meth:`get_files`).
+        than known up front (populated by `get_files`).
     parent_config : RunConfig
         Group-level ``RunConfig`` built from ``static_traits``.
     output : OutputCollection or None
@@ -735,7 +735,7 @@ class DataGroup:
         Temporary directory for intermediate files.
     missing_files : dict
         Files that were expected but not found or didn't match, populated
-        by :meth:`get_files`.
+        by `get_files`.
     """
 
     def __init__(self, grp_d, tmp_dir=None):
@@ -746,7 +746,7 @@ class DataGroup:
         grp_d : dict
             Group-level trait values. Each value is classified as static
             (kept as-is, collapsed to its scalar) if it has exactly one
-            element under :func:`correct_iterable`, otherwise as nonstatic
+            element under `correct_iterable`, otherwise as nonstatic
             (kept as given, including ``None``).
         tmp_dir : str or pathlib.Path, optional
             Temporary directory for intermediate files. Default is ``None``.
@@ -795,7 +795,7 @@ class DataGroup:
           filename pattern from ``config`` (via
           ``output.{source}.dir_structure``/``output.{source}.file_format``),
           walks the filesystem under ``output_path`` for matching filenames
-          (:func:`extract_from_pattern`), then does one batched Polars scan
+          (`extract_from_pattern`), then does one batched Polars scan
           across all filename-matched candidates to confirm each file
           actually contains rows matching this group's traits before
           building its ``RunConfig``.
@@ -1035,7 +1035,7 @@ class DataGroup:
         -------
         OutputCollection
             Wraps the concatenated tables, with ``grp_specs`` set from
-            :meth:`get_group_config`.
+            `get_group_config`.
         """
         tables = []
         for groupconfig_file in self.file_list:
@@ -1071,7 +1071,7 @@ class Output:
     """A lazily-loaded table of CCM output data, backed by a Parquet file or a SQLite query.
 
     Wraps a single output table (``_full``) that may be supplied directly,
-    or loaded on first access (:meth:`get_table`) from ``path`` — either as
+    or loaded on first access (`get_table`) from ``path`` — either as
     a Parquet file (default) or via a SQLite query (``format='sqlite'``,
     using ``query``/``params``). ``surrogate``/``real`` split the table on
     the ``surr_var`` column, if present.
@@ -1079,7 +1079,7 @@ class Output:
     Attributes
     ----------
     _full : polars.LazyFrame or None
-        The output table, once loaded. ``None`` until :meth:`get_table` is
+        The output table, once loaded. ``None`` until `get_table` is
         called (directly, or via the ``table``/``full``/``surrogate``/``real``
         properties).
     path : pathlib.Path or None
@@ -1088,7 +1088,7 @@ class Output:
         Label for what kind of output this is (e.g. ``'delta_rho_stats'``,
         ``'libsize_aggregated'``).
     tmp_dir : pathlib.Path or None
-        Directory used by :meth:`write_table` when ``path`` is unset.
+        Directory used by `write_table` when ``path`` is unset.
     query : str or None
         SQL query, required when ``format='sqlite'``.
     format : str
@@ -1107,13 +1107,13 @@ class Output:
             The table data, if already available. A pandas DataFrame is
             converted to a polars ``LazyFrame`` immediately; other types are
             stored as-is. If ``None``, the table is loaded on first access
-            via :meth:`get_table`.
+            via `get_table`.
         path : str or pathlib.Path, optional
             File path to load from / write to.
         outtype : str, optional
             Stored as ``self.type``.
         tmp_dir : str or pathlib.Path, optional
-            Directory used by :meth:`write_table` if ``path`` is unset.
+            Directory used by `write_table` if ``path`` is unset.
         query : str, optional
             SQL query, required when ``format='sqlite'``.
         format : str, optional
@@ -1233,7 +1233,7 @@ class Output:
         -------
         polars.LazyFrame
             The full table unfiltered if there's no ``surr_var`` column to
-            filter on (unlike :attr:`surrogate`, which returns ``None`` in
+            filter on (unlike `surrogate`, which returns ``None`` in
             that case).
         """
         self.get_table()
@@ -1378,13 +1378,13 @@ class Output:
 class OutputCollection:
     """A group's CCM output tables, plus derived metrics and the relationship they describe.
 
-    Wraps several lazily-managed :class:`Output` tables (raw ``table``,
+    Wraps several lazily-managed `Output` tables (raw ``table``,
     ``libsize_aggregated``, ``active_stats``/``active_full``,
     ``delta_rho_stats``/``delta_rho_full``) produced by running CCM over a
-    group of runs (``grp_config``), and a :class:`Relationship` (split into
+    group of runs (``grp_config``), and a `Relationship` (split into
     ``r1``/``r2`` sides) describing what those tables say about the two
     variables involved. The ``calc_*``/``aggregate_*`` methods populate the
-    ``Output`` attributes from raw data; :meth:`calc_metrics` (and the
+    ``Output`` attributes from raw data; `calc_metrics` (and the
     lag-finding pipeline it drives — see that method's docstring) populates
     ``r1``/``r2``'s scalar summary attributes from
     ``delta_rho_stats``/``delta_rho_full``.
@@ -1406,7 +1406,7 @@ class OutputCollection:
     table : Output or None
         The raw/combined CCM output table.
     libsize_aggregated : Output or None
-        Output aggregated across libsize, from :meth:`aggregate_libsize`.
+        Output aggregated across libsize, from `aggregate_libsize`.
     active_stats : Output or None
         Reserved for active-statistics output (not currently populated by
         any method on this class).
@@ -1414,9 +1414,9 @@ class OutputCollection:
         Reserved for active-full output (not currently populated by any
         method on this class).
     delta_rho_stats : Output or None
-        Delta-rho summary statistics, from :meth:`calc_delta_rho`.
+        Delta-rho summary statistics, from `calc_delta_rho`.
     delta_rho_full : Output or None
-        Delta-rho full bootstrap vectors, from :meth:`calc_delta_rho`.
+        Delta-rho full bootstrap vectors, from `calc_delta_rho`.
     relationships : Relationship or None
         Describes the x/y relationship for ``grp_config``.
     r1 : RelationshipSide or None
@@ -1453,7 +1453,7 @@ class OutputCollection:
         and its directed ``relationship``. ``in_table`` is normalized to a
         list and handled one of two ways: if every element is an
         ``OutputCollection``, their corresponding ``Output`` attributes are
-        merged in via :meth:`combine_OutputCollections`; otherwise each
+        merged in via `combine_OutputCollections`; otherwise each
         element (a ``polars.DataFrame``/``LazyFrame``, ``pandas.DataFrame``,
         or ``Output``) is converted to a polars
         ``LazyFrame`` and concatenated into ``self.table``.
@@ -1488,8 +1488,8 @@ class OutputCollection:
         whenever ``grp_specs`` is given, even though ``self.relationships``
         ends up correctly populated — worth verifying directly (e.g. by
         constructing an instance and checking ``r1``/``r2``) rather than
-        assuming, since :meth:`get_relationship`/:meth:`set_relationships`
-        or :meth:`_ensure_compat_attributes` may be relied upon elsewhere in
+        assuming, since `get_relationship`/`set_relationships`
+        or `_ensure_compat_attributes` may be relied upon elsewhere in
         the calling code to populate them before they're used, and there may
         be context from how this class is used downstream that isn't
         visible from this file alone.
@@ -1608,7 +1608,7 @@ class OutputCollection:
         """Upgrade a previously serialized ``OutputCollection`` to have all current attributes.
 
         If ``legacy_obj`` already has every key in ``_COMPAT_DEFAULTS``, it's
-        backfilled in place via :meth:`_ensure_compat_attributes` and
+        backfilled in place via `_ensure_compat_attributes` and
         returned as-is. Otherwise, a fresh instance is constructed (using
         ``grp_specs``/``tmp_dir``, or ``legacy_obj``'s own ``grp_config``/
         ``tmp_path`` if not given) and every attribute ``legacy_obj`` already
@@ -1705,7 +1705,7 @@ class OutputCollection:
         """Set an explicit directed relationship or build CedarKit's two-sided one.
 
         With ``relationship=None``, this retains CedarKit's existing behavior:
-        construct a bidirectional :class:`Relationship` from ``self.grp_config``
+        construct a bidirectional `Relationship` from ``self.grp_config``
         and its ``r1``/``r2`` sides.  With a supplied directed relationship,
         ``relationships`` and ``r1`` reference that object and ``r2`` is
         ``None``.  A supplied relationship must expose ``r`` and ``r_calc``;
@@ -1755,7 +1755,7 @@ class OutputCollection:
             Which side to return. A supplied directed relationship exposes only
             ``'r1'``. Default is ``'r1'``.
         output_convention : str, optional
-            Passed to :meth:`set_relationships` if it needs to be called.
+            Passed to `set_relationships` if it needs to be called.
             Default is ``"operation"``.
 
         Returns
@@ -1781,7 +1781,7 @@ class OutputCollection:
     def relation_aliases(self, relationship_id):
         """Return generic relation spellings that select one relationship category.
 
-        CedarKit's :class:`Relationship` owns the normal r1/r2 vocabulary.
+        CedarKit's `Relationship` owns the normal r1/r2 vocabulary.
         The fallbacks retain support for an externally supplied directed
         relationship object, which need only expose ``r`` and ``r_calc``.
         """
@@ -1885,23 +1885,23 @@ class OutputCollection:
         Entry point for a multi-step, stateful pipeline that threads through
         several methods below, each reading/writing shared instance state:
 
-        1. :meth:`_calc_metrics` (per relationship side) checks
-           ``self.target_lag``; if unset, calls :meth:`set_target_lag`.
-        2. :meth:`set_target_lag` ensures ``self.lag_choices`` exists (via
-           :meth:`calc_lags_peaks`, which calls :meth:`find_candidate_peaks`
+        1. `_calc_metrics` (per relationship side) checks
+           ``self.target_lag``; if unset, calls `set_target_lag`.
+        2. `set_target_lag` ensures ``self.lag_choices`` exists (via
+           `calc_lags_peaks`, which calls `find_candidate_peaks`
            on ``self.delta_rho_full``'s real-data rows), then calls
-           :meth:`find_viable_peaks` (which calls :meth:`lag_is_equivalent`)
-           to get ``self.viable_lags``, then :meth:`test_lags` to score those
+           `find_viable_peaks` (which calls `lag_is_equivalent`)
+           to get ``self.viable_lags``, then `test_lags` to score those
            candidates against surrogate performance, and finally picks
            ``self.target_lag`` from the result.
-        3. Back in :meth:`_calc_metrics`, the row of ``self.viable_lags``
+        3. Back in `_calc_metrics`, the row of ``self.viable_lags``
            matching ``self.target_lag`` is used to set scalar attributes
            (``delta_rho``, ``maxlibsize_rho``, ``lag``, surrogate
            outperformance counts/fractions, peak bounds) directly on
            ``self.r1`` or ``self.r2`` — accessed as `self.r1`/`self.r2`
-           directly rather than via :meth:`get_relationship`, so this relies
+           directly rather than via `get_relationship`, so this relies
            on them already being populated (see the caveat in
-           :meth:`__init__`'s docstring about whether that's guaranteed).
+           `__init__`'s docstring about whether that's guaranteed).
 
         If ``relationship_id`` is ``None``, CedarKit's two-sided relationship
         processes both sides. A supplied directed relationship processes only
@@ -1913,11 +1913,11 @@ class OutputCollection:
             Which side to compute metrics for; both if ``None``. Default is ``None``.
         lag : None or callable or {'pos', 'neg'}, optional
             Restricts candidate lags; passed through to
-            :meth:`set_target_lag` → :meth:`_resolve_metrics_lag_filter`.
+            `set_target_lag` → `_resolve_metrics_lag_filter`.
             Default is ``None`` (unrestricted).
         smoothing_window : int, optional
             Smoothing window passed through the pipeline to
-            :meth:`find_candidate_peaks`/:meth:`find_viable_peaks`. Default is ``1``.
+            `find_candidate_peaks`/`find_viable_peaks`. Default is ``1``.
         """
         self.delta_rho_stats.get_table()
         if relationship_id is None:
@@ -1992,7 +1992,7 @@ class OutputCollection:
     def _draw_metric_df(self, source, table_attr='real'):
         """Group ``source`` by (relation, lag, surr_var, surr_num) and summarize ``maxlibsize_rho``/``delta_rho``.
 
-        Step used by :meth:`calc_lags_peaks` (see :meth:`calc_metrics` for
+        Step used by `calc_lags_peaks` (see `calc_metrics` for
         the full pipeline this is part of). Computes mean/std/median/p25/p75
         for both metrics per group.
 
@@ -2031,7 +2031,7 @@ class OutputCollection:
     def find_candidate_peaks(self, df, y_col='maxlibsize_rho', x_col='lag', smoothing_window=1):
         """Find local maxima of ``{y_col}_mean`` over ``x_col`` (lag) and estimate each peak's plateau bounds.
 
-        Step used by :meth:`calc_lags_peaks` (see :meth:`calc_metrics` for
+        Step used by `calc_lags_peaks` (see `calc_metrics` for
         the full pipeline). Sorts by ``x_col``, optionally smooths
         ``{y_col}_mean`` with a centered rolling mean, finds sign changes in
         its derivative (positive-to-non-positive, i.e. local maxima) as
@@ -2044,7 +2044,7 @@ class OutputCollection:
         ----------
         df : pandas.DataFrame
             Must have columns ``x_col``, ``{y_col}_mean``, ``{y_col}_p25``,
-            ``{y_col}_p75`` (the output shape of :meth:`_draw_metric_df`).
+            ``{y_col}_p75`` (the output shape of `_draw_metric_df`).
         y_col : str, optional
             Metric column stem. Default is ``'maxlibsize_rho'``.
         x_col : str, optional
@@ -2140,7 +2140,7 @@ class OutputCollection:
     def lag_is_equivalent(self, candidates, target=None, variable='maxlibsize_rho', category='', smoothing_window=1):
         """From a set of candidate peaks, keep ``target`` plus any statistically indistinguishable from it.
 
-        Step used by :meth:`find_viable_peaks` (see :meth:`calc_metrics` for
+        Step used by `find_viable_peaks` (see `calc_metrics` for
         the full pipeline). Sorts ``candidates`` by descending
         ``{variable}_mean``; if ``target`` isn't given, the top candidate is
         used as ``target`` and excluded from the comparison set. A
@@ -2151,7 +2151,7 @@ class OutputCollection:
         Parameters
         ----------
         candidates : pandas.DataFrame
-            Candidate peak rows (e.g. from :meth:`find_candidate_peaks`).
+            Candidate peak rows (e.g. from `find_candidate_peaks`).
         target : dict, optional
             Reference peak to compare others against. If ``None``, the
             top-ranked candidate is used.
@@ -2204,9 +2204,9 @@ class OutputCollection:
     def find_viable_peaks(self, surr_var='neither', y_col='maxlibsize_rho', lag_filter=None, smoothing_window=0):
         """Classify ``self.lag_choices`` into unrestricted/set/anti-set viable-lag categories.
 
-        Step used by :meth:`set_target_lag` (see :meth:`calc_metrics` for
+        Step used by `set_target_lag` (see `calc_metrics` for
         the full pipeline). Always computes the unrestricted set (all of
-        ``self.lag_choices`` via :meth:`lag_is_equivalent`). If
+        ``self.lag_choices`` via `lag_is_equivalent`). If
         ``lag_filter`` is given, additionally splits ``self.lag_choices`` by
         whether ``lag_filter(peak_end)`` is true ("set") or false
         ("anti_set") and computes each separately; if not given, the
@@ -2217,13 +2217,13 @@ class OutputCollection:
         surr_var : str, optional
             Currently unused by this method's body.
         y_col : str, optional
-            Metric column stem passed to :meth:`lag_is_equivalent`. Default
+            Metric column stem passed to `lag_is_equivalent`. Default
             is ``'maxlibsize_rho'``.
         lag_filter : callable, optional
             Predicate over ``peak_end`` values splitting set/anti-set.
             Default is ``None`` (no split).
         smoothing_window : int, optional
-            Passed to :meth:`lag_is_equivalent`. Default is ``0``.
+            Passed to `lag_is_equivalent`. Default is ``0``.
 
         Returns
         -------
@@ -2257,11 +2257,11 @@ class OutputCollection:
     def calc_lags_peaks(self, relationship_id='r1', surr_var='neither', y_col='maxlibsize_rho', smoothing_window=1):
         """Compute candidate lag peaks for one relationship side from ``self.delta_rho_full``.
 
-        Step used by :meth:`set_target_lag` (see :meth:`calc_metrics` for
+        Step used by `set_target_lag` (see `calc_metrics` for
         the full pipeline). Loads ``self.delta_rho_full``, summarizes its
-        real-data rows via :meth:`_draw_metric_df`, filters to this
+        real-data rows via `_draw_metric_df`, filters to this
         relationship/``surr_var`` combination, and finds candidate peaks via
-        :meth:`find_candidate_peaks`.
+        `find_candidate_peaks`.
 
         Parameters
         ----------
@@ -2271,15 +2271,15 @@ class OutputCollection:
             Which ``surr_var`` value to filter the real-data rows to.
             Default is ``'neither'`` (non-surrogate rows).
         y_col : str, optional
-            Metric column stem passed to :meth:`find_candidate_peaks`.
+            Metric column stem passed to `find_candidate_peaks`.
             Default is ``'maxlibsize_rho'``.
         smoothing_window : int, optional
-            Passed to :meth:`find_candidate_peaks`. Default is ``1``.
+            Passed to `find_candidate_peaks`. Default is ``1``.
 
         Populates
         ---------
         self.lag_choices : pandas.DataFrame
-            Candidate peaks from :meth:`find_candidate_peaks`.
+            Candidate peaks from `find_candidate_peaks`.
         self.real_r_df_tmp : pandas.DataFrame
             The filtered real-data summary used to find them.
         """
@@ -2303,7 +2303,7 @@ class OutputCollection:
     def test_lags(self, lag_df=None, relationship=None, y_col='maxlibsize_rho'):
         """Score each candidate lag's performance against surrogate-data performance.
 
-        Step used by :meth:`set_target_lag` (see :meth:`calc_metrics` for
+        Step used by `set_target_lag` (see `calc_metrics` for
         the full pipeline). Loads ``self.delta_rho_stats``; if it has no
         surrogate rows, returns ``lag_df`` unchanged (with a count of
         ``0`` rather than testing). Otherwise, for each participating
@@ -2413,10 +2413,10 @@ class OutputCollection:
     def set_target_lag(self, relationship_id = 'r1', y_col='maxlibsize_rho', smoothing_window=1, lag=None):
         """Choose the single best lag for one relationship side, after candidate-finding and surrogate testing.
 
-        Step used by :meth:`_calc_metrics` (see :meth:`calc_metrics` for the
+        Step used by `_calc_metrics` (see `calc_metrics` for the
         full pipeline). Ensures ``self.lag_choices`` exists (computing it via
-        :meth:`calc_lags_peaks` if not), then runs
-        :meth:`find_viable_peaks` → :meth:`test_lags` to get scored
+        `calc_lags_peaks` if not), then runs
+        `find_viable_peaks` → `test_lags` to get scored
         candidates, restricts to the ``'unrestricted'`` category, and picks
         the lag with the highest ``maxlibsize_rho_mean`` among those sorted
         by absolute lag (closest-to-zero first) and decision metric — by
@@ -2430,11 +2430,11 @@ class OutputCollection:
         y_col : str, optional
             Metric column stem. Default is ``'maxlibsize_rho'``.
         smoothing_window : int, optional
-            Passed through to :meth:`find_viable_peaks`. Default is ``1``.
+            Passed through to `find_viable_peaks`. Default is ``1``.
         lag : None or callable or {'pos', 'neg'}, optional
-            Passed to :meth:`_resolve_metrics_lag_filter` (note: the
+            Passed to `_resolve_metrics_lag_filter` (note: the
             resulting filter is not actually applied to
-            :meth:`find_viable_peaks` in this method's body — see notes doc).
+            `find_viable_peaks` in this method's body — see notes doc).
 
         Returns
         -------
@@ -2508,14 +2508,14 @@ class OutputCollection:
     def _calc_metrics(self, relationship_id='r1', lag=None, smoothing_window=1, y_col='maxlibsize_rho'):
         """Set one relationship side's scalar summary attributes from its target lag's data row.
 
-        Called by :meth:`calc_metrics` (see that method's docstring for the
+        Called by `calc_metrics` (see that method's docstring for the
         full pipeline). Ensures ``self.target_lag`` is set (via
-        :meth:`set_target_lag` if not — returning ``None`` early if no
+        `set_target_lag` if not — returning ``None`` early if no
         target lag or no matching row in ``self.viable_lags`` is found),
         then writes ``delta_rho``/``maxlibsize_rho``/``lag``/surrogate
         outperformance counts and fractions/``peak_start``/``peak_end``
         directly onto ``self.r1`` or ``self.r2`` (accessed directly, not via
-        :meth:`get_relationship` — see the caveat about whether ``r1``/
+        `get_relationship` — see the caveat about whether ``r1``/
         ``r2`` are guaranteed populated, noted in ``__init__``'s docstring).
 
         Parameters
@@ -2523,12 +2523,12 @@ class OutputCollection:
         relationship_id : {'r1', 'r2'}, optional
             Which side to compute and assign metrics for. Default is ``'r1'``.
         lag : None or callable or {'pos', 'neg'}, optional
-            Passed through to :meth:`set_target_lag` if a target lag still
+            Passed through to `set_target_lag` if a target lag still
             needs to be found.
         smoothing_window : int, optional
-            Passed through to :meth:`set_target_lag`. Default is ``1``.
+            Passed through to `set_target_lag`. Default is ``1``.
         y_col : str, optional
-            Passed through to :meth:`set_target_lag`. Default is ``'maxlibsize_rho'``.
+            Passed through to `set_target_lag`. Default is ``'maxlibsize_rho'``.
 
         Returns
         -------
@@ -2645,7 +2645,7 @@ class OutputCollection:
         versus which define the group itself (``calc_grp_cols`` — the
         complement, plus ``'relation'`` if present), then for each unique
         combination of ``calc_grp_cols`` values, filters to that group's
-        sub-table and applies :func:`compute_delta_rho_grp`. Results across
+        sub-table and applies `compute_delta_rho_grp`. Results across
         groups are concatenated and stored.
 
         Parameters
@@ -2657,7 +2657,7 @@ class OutputCollection:
             Whether to compute and store ``self.delta_rho_full``. Default
             is ``False``.
         **kwargs
-            Passed through to :func:`compute_delta_rho_grp` (e.g.
+            Passed through to `compute_delta_rho_grp` (e.g.
             ``best_window_halfwidth``, ``min_window``, ``max_window``).
 
         Returns
@@ -2878,7 +2878,7 @@ class OutputCollection:
     def resolve_paths(self, dyad_dir, *, prefer_local=True):
         """Rebase paths for this collection beneath ``dyad_dir``.
 
-        This is the explicit counterpart to :meth:`Output.resolve_path` for
+        This is the explicit counterpart to `Output.resolve_path` for
         callers (such as the object-grid runner) that already know the local
         dyad directory.  It preserves every nested path component below the
         dyad rather than assuming that all files live directly in ``tmp``.
@@ -2918,7 +2918,7 @@ class OutputCollection:
         """Re-point every populated ``Output`` attribute's path/``tmp_dir`` at a new dyad home.
 
         Because ``Output`` tables are read in and cleared rather than held
-        open continuously (see :meth:`Output.clear_table`), their file
+        open continuously (see `Output.clear_table`), their file
         paths need to be explicitly updated whenever the dyad home or
         temporary directory changes — this method does that for every
         populated ``Output`` attribute (``table``, ``libsize_aggregated``,
@@ -3014,15 +3014,15 @@ def merge_variable_ts(col_var_obj, target_var_obj):
 class CMConfigBase(RunConfig):
     """Shared base for cross-mapping configs: resolves variable objects and builds a merged dataframe.
 
-    Extends :class:`RunConfig` with the machinery common to running any
+    Extends `RunConfig` with the machinery common to running any
     cross-mapping analysis between two resolved variables: pulling each
-    variable's real or surrogate timeseries (:meth:`set_col_ts`/
-    :meth:`set_target_ts`) and merging them into one working dataframe
-    (:meth:`make_df`, via :func:`merge_variable_ts`). :class:`CCMConfig` is
+    variable's real or surrogate timeseries (`set_col_ts`/
+    `set_target_ts`) and merging them into one working dataframe
+    (`make_df`, via `merge_variable_ts`). `CCMConfig` is
     the (currently only) subclass, adding CCM-specific run setup on top.
 
     This base class holds logic that was recently consolidated out of
-    :class:`CCMConfig` so it isn't duplicated if/when other cross-mapping
+    `CCMConfig` so it isn't duplicated if/when other cross-mapping
     config types are added — see the notes doc for ``CCMConfig`` methods
     that still locally override these and are candidates for deletion now
     that the shared versions live here.
@@ -3036,7 +3036,7 @@ class CMConfigBase(RunConfig):
         grp_specs : dict
             Trait values, passed to ``RunConfig.__init__``.
         config : cedarkit.core.project_config.ProjectConfig
-            Project configuration, passed to :meth:`RunConfig.set_var_objs`
+            Project configuration, passed to `RunConfig.set_var_objs`
             if ``init_var_objs`` is true.
         proj_dir : str or pathlib.Path, optional
             Root project directory. Overrides ``self.proj_dir`` if given
@@ -3049,7 +3049,7 @@ class CMConfigBase(RunConfig):
             ``abs(tau * (E - 1))`` from the resolved ``self.tau``/``self.E``.
         init_var_objs : bool, optional
             Whether to resolve ``col_var_obj``/``target_var_obj`` via
-            :meth:`RunConfig.set_var_objs` (only happens if ``self.proj_dir``
+            `RunConfig.set_var_objs` (only happens if ``self.proj_dir``
             is also set). Default is ``True``.
         """
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
@@ -3129,7 +3129,7 @@ class CMConfigBase(RunConfig):
     def make_df(self):
         """Merge ``col_var_obj``/``target_var_obj``'s timeseries into ``self.df``, sliced to the training range.
 
-        Sets ``self.df`` via :func:`merge_variable_ts`, then slices it to
+        Sets ``self.df`` via `merge_variable_ts`, then slices it to
         ``[self.train_ind_i : self.train_ind_f]`` (or just
         ``[self.train_ind_i:]`` if ``self.train_ind_f`` is ``None``).
 
@@ -3137,7 +3137,7 @@ class CMConfigBase(RunConfig):
         -------
         CMConfigBase
             ``self``, for chaining (e.g. ``self.make_df().shift()`` in
-            :class:`CCMConfig`).
+            `CCMConfig`).
         """
         self.df = merge_variable_ts(self.col_var_obj, self.target_var_obj)
         self.df = self.df.iloc[self.train_ind_i : self.train_ind_f].reset_index(drop=True) if self.train_ind_f is not None else self.df.iloc[self.train_ind_i : ].reset_index(drop=True)
@@ -3145,17 +3145,17 @@ class CMConfigBase(RunConfig):
 
 
 class CCMConfig(CMConfigBase):
-    """Fully resolved configuration for one CCM run, ready to execute via :meth:`run_ccm`.
+    """Fully resolved configuration for one CCM run, ready to execute via `run_ccm`.
 
-    Extends :class:`CMConfigBase` with everything specific to actually
-    running CCM: the output filename/path (:meth:`get_filename`,
-    :meth:`set_output_calc_sub`), the libsize range to sweep
-    (:meth:`set_libsizes`), and the lag-shift applied to the merged
-    dataframe (:meth:`shift`) before :meth:`run_ccm` hands off to
+    Extends `CMConfigBase` with everything specific to actually
+    running CCM: the output filename/path (`get_filename`,
+    `set_output_calc_sub`), the libsize range to sweep
+    (`set_libsizes`), and the lag-shift applied to the merged
+    dataframe (`shift`) before `run_ccm` hands off to
     ``cedarkit.utils.experiments.run_experiment``.
 
     ``set_col_ts``/``set_target_ts``/``make_df`` are also defined directly
-    on this class, overriding the versions on :class:`CMConfigBase` that
+    on this class, overriding the versions on `CMConfigBase` that
     were recently consolidated there. ``set_col_ts``/``make_df`` are exact
     duplicates of the base class versions and are candidates for deletion;
     ``set_target_ts`` is *not* a pure duplicate — see the notes doc before
@@ -3165,12 +3165,12 @@ class CCMConfig(CMConfigBase):
     def __init__(self, grp_specs, config, proj_dir=None, cpus=1, exclusion_radius=None, limit_surr_libsizes= True):
         """Resolve variables, build the merged/shifted dataframe, and determine the output path and libsize range.
 
-        Builds on :class:`CMConfigBase`'s variable resolution: computes the
-        output filename/path (:meth:`get_filename`,
-        :meth:`set_output_calc_sub`), loads both variables' timeseries
-        (:meth:`set_col_ts`/:meth:`set_target_ts`), merges and shifts them
-        into ``self.df`` (:meth:`make_df` then :meth:`shift`), resolves the
-        libsize sweep range (:meth:`set_libsizes`, trimmed to the last 5 if
+        Builds on `CMConfigBase`'s variable resolution: computes the
+        output filename/path (`get_filename`,
+        `set_output_calc_sub`), loads both variables' timeseries
+        (`set_col_ts`/`set_target_ts`), merges and shifts them
+        into ``self.df`` (`make_df` then `shift`), resolves the
+        libsize sweep range (`set_libsizes`, trimmed to the last 5 if
         either variable is surrogate data and ``limit_surr_libsizes`` is
         true), and infers ``self.time_var``/``self.noTime`` from whichever
         column of ``self.df`` isn't one of the two variable columns.
@@ -3180,20 +3180,20 @@ class CCMConfig(CMConfigBase):
         grp_specs : dict
             Trait values for this run. Also used to build a separate,
             unresolved ``RunConfig`` snapshot stored as ``self.rc`` (used
-            later by :meth:`run_ccm` to construct the output
+            later by `run_ccm` to construct the output
             ``OutputCollection``).
         config : cedarkit.core.project_config.ProjectConfig
             Project configuration; must have ``ccm_config.max_libsize``/
             ``ccm_config.libsize_step`` (and optionally
             ``ccm_config.min_window``/``ccm_config.min_libsize``), and
             ``output.csv.dir_structure``/``output.csv.file_format`` (or an
-            ``intermediate.csv`` block — see :meth:`set_output_calc_sub`).
+            ``intermediate.csv`` block — see `set_output_calc_sub`).
         proj_dir : str or pathlib.Path, optional
-            Root project directory, passed to :class:`CMConfigBase`.
+            Root project directory, passed to `CMConfigBase`.
         cpus : int, optional
             Stored as ``self.cpus``. Default is ``1``.
         exclusion_radius : float, optional
-            Passed to :class:`CMConfigBase`.
+            Passed to `CMConfigBase`.
         limit_surr_libsizes : bool, optional
             If true (default), trims ``self.libsizes`` to its last 5 values
             when either variable is using surrogate data.
@@ -3276,7 +3276,7 @@ class CCMConfig(CMConfigBase):
         Returns
         -------
         str
-            Filename, normalized via :func:`check_csv`.
+            Filename, normalized via `check_csv`.
         """
         # generate filename of CCM CSV based on template in config
         pset_d = self.to_dict()
@@ -3294,7 +3294,7 @@ class CCMConfig(CMConfigBase):
         Returns
         -------
         tuple[bool, bool] or bool
-            ``(pset_exists, stem_exists)`` from :func:`check_exists`, where
+            ``(pset_exists, stem_exists)`` from `check_exists`, where
             ``pset_exists`` is the strong existence criterion (exact file)
             and ``stem_exists`` is the looser one (matching stem).
 
@@ -3448,7 +3448,7 @@ class CCMConfig(CMConfigBase):
 
         Normalizes ``args`` to a ``SimpleNamespace`` (building a default
         one from ``overwrite`` if not given), checks whether this run's
-        output already exists (:meth:`check_run_exists`), determines
+        output already exists (`check_run_exists`), determines
         overwrite/continue behavior via
         ``cedarkit.utils.io.gonogo.decide_file_handling``, runs
         ``cedarkit.utils.experiments.run_experiment``, writes the result via
