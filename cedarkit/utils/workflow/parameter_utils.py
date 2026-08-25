@@ -525,14 +525,40 @@ parameters_d = {
 
 
 def process_params_group(arg_tuple, write_mode='a'):
-    '''
-    Process a group of arguments to generate parameter combinations and write them to a CSV file.
-    Args:
-        arg_tuple (tuple): A tuple containing various arguments needed for processing.
-        write_mode (str): The mode to open the CSV file ('a' for append, 'w' for write).
+    """Expand one variable pair's parameter spec into rows and append them to a CSV.
 
+    Fills in the ``target_var``/``col_var``/``surr_var``/``surr_num`` value
+    lists in ``parameters`` from the tuple's arguments, expands any
+    ``'Tp_tauN'``-style flag in ``param_flags`` into paired
+    ``Tp = tau * N`` combinations (one parameter set per ``tau``/multiple
+    pair, instead of the full cross product), takes the Cartesian product of
+    the resulting parameter lists, and writes the rows to ``param_csv``.
 
-    '''
+    Parameters
+    ----------
+    arg_tuple : tuple
+        ``(col_var_id, col_var_alias, target_var_id, target_var_alias,
+        surrogate_vars, surrogate_range, param_flags, param_csv,
+        parameters)`` — ``surrogate_vars`` is a list of surrogate variable
+        names (``['neither']`` if empty); ``surrogate_range`` is a
+        ``(start, stop)`` pair overriding ``parameters['surr_num']`` when it
+        has more than one element; ``param_flags`` is a list of strings,
+        where any containing ``'Tp_tau'`` triggers the tau-multiple
+        expansion described above; ``param_csv`` is the destination
+        ``pathlib.Path``; ``parameters`` is a dict of
+        ``{param_name: {'values': [...]}}`` giving each parameter's
+        candidate values.
+    write_mode : {'a', 'w'}, default 'a'
+        Mode to open ``param_csv`` with. Forced to ``'w'`` (and the header is
+        written) if ``param_csv`` doesn't already exist, regardless of the
+        value passed in.
+
+    See Also
+    --------
+    make_comb_df : Builds a parameter combination table directly, without
+        the CSV side effects this function has.
+    tidy_up_params : Deduplicates the CSVs this function appends to.
+    """
     (col_var_id, col_var_alias, target_var_id, target_var_alias,
      surrogate_vars,surrogate_range,
      param_flags, param_csv, parameters) = arg_tuple
@@ -603,6 +629,34 @@ def process_params_group(arg_tuple, write_mode='a'):
 
 
 def tidy_up_params(param_csv_paths, keep='first'):
+    """Deduplicate parameter CSVs in place and write a per-config summary.
+
+    For each path in ``param_csv_paths``: reads the CSV, drops duplicate rows
+    (ignoring the ``id`` column) keeping ``keep``'s occurrence, overwrites the
+    file with the deduplicated table, and writes a companion
+    ``summary_<name>.csv`` alongside it with, per
+    (``col_var_id``, ``target_var_id``, ``E``, ``tau``, ``lag``, ``surr_var``)
+    group, the min/max ``surr_num`` observed.
+
+    Parameters
+    ----------
+    param_csv_paths : iterable of str or pathlib.Path
+        Parameter CSV files to deduplicate. Internally de-duplicated as a set
+        before processing, so each path is handled once even if repeated.
+    keep : {'first', 'last', False}, default 'first'
+        Which duplicate occurrence to keep, passed through to
+        ``pandas.DataFrame.drop_duplicates``.
+
+    Notes
+    -----
+    This mutates the input files directly (overwrites ``param_csv_path`` and
+    creates ``summary_<param_csv_path.name>`` in the same directory) — it
+    does not return the resulting frames.
+
+    See Also
+    --------
+    make_comb_df : Builds the parameter combinations that these CSVs record.
+    """
     param_csv_paths = list(set(param_csv_paths))
     for param_csv_path in param_csv_paths:
 
@@ -628,6 +682,47 @@ def tidy_up_params(param_csv_paths, keep='first'):
 
 
 def make_comb_df(col_var_ids=None, target_var_ids=None, E_tau_combs=None, lag_vals=None, tp_vals=None, knn_vals=None, df_path=None):
+    """Build (or load) the full combinatorial grid of CCM run parameters.
+
+    Takes the Cartesian product of column/target variable ids, (E, τ) pairs,
+    lags, prediction horizons (Tp), and knn values, and returns one row per
+    combination — the parameter-sweep table consumed by the CCM run
+    notebooks/scripts.
+
+    Parameters
+    ----------
+    col_var_ids : list of str, optional
+        Predictor ("column") variable ids. Required if ``df_path`` is not
+        given.
+    target_var_ids : list of str, optional
+        Target variable ids. Required if ``df_path`` is not given.
+    E_tau_combs : list of (int, int), optional
+        ``(E, tau)`` embedding-parameter pairs to sweep. Required if
+        ``df_path`` is not given.
+    lag_vals : list of int, optional
+        Lag values (time-series alignment shifts) to sweep. Required if
+        ``df_path`` is not given.
+    tp_vals : list of int, optional
+        Prediction-horizon (``Tp``) values to sweep. Required if ``df_path``
+        is not given.
+    knn_vals : list of int, optional
+        Number-of-neighbors values to sweep. Required if ``df_path`` is not
+        given.
+    df_path : str or pathlib.Path, optional
+        If given, all other arguments are ignored and the combination table
+        is loaded directly from this CSV instead of being generated.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per combination, with columns ``E``, ``tau``, ``lag``,
+        ``Tp``, ``knn``, ``col_var_id``, ``target_var_id`` (when generated),
+        or the CSV's own columns (when loaded from ``df_path``).
+
+    See Also
+    --------
+    tidy_up_params : Deduplicates parameter CSVs derived from this table.
+    """
     if df_path is not None:
         comb_df = pd.read_csv(df_path)
         return comb_df

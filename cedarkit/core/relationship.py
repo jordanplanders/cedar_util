@@ -270,7 +270,60 @@ class RelationshipSide:
 
 
 class Relationship:
-    """Relationship family with calc-facing and presentation-facing render channels."""
+    """Directional x/y relationship, rendered as calc- and presentation-facing sentences.
+
+    A CCM dyad has two directional relationships — "x reconstructs/causes y"
+    and "y reconstructs/causes x" — represented here as ``r1`` and ``r2``.
+    Each side has both a "calc" sentence (matching the labels actually used
+    in output tables, e.g. a ``relation`` column) and a "pres" sentence
+    (the human-readable form for figures/text), independently switchable
+    between an "operation" phrasing (e.g. "x reconstructs y") and an
+    "influence" phrasing (e.g. "y causes x") via ``output_convention``/
+    ``pres_convention``. Surrogate variants (``surr_r1x``, ``surr_r2y``,
+    etc.) substitute a ``"(surr)"``-suffixed variable name into the same
+    sentence patterns. ``to_calc_mapping``/``to_pres_mapping`` build lookup
+    tables that normalize any rendered spelling of a relationship back to
+    its canonical calc or pres form — used to reconcile relation labels that
+    drifted across code versions.
+
+    Parameters
+    ----------
+    var_x : str, default 'temp'
+        Name of the "x" variable.
+    var_y : str, default 'TSI'
+        Name of the "y" variable.
+    surr_flag : {'neither', 'x', 'y', 'both'}, default 'neither'
+        Which variable(s) are currently surrogate data, consulted by
+        ``set_active_r1``/``set_active_r2``. May also be given as the
+        literal value of ``var_x`` or ``var_y``, treated the same as
+        ``'x'``/``'y'`` respectively.
+    influence_word : str, default 'causes'
+        Verb substituted for "causes" in influence-convention sentences.
+    operation_word : str, default 'reconstructs'
+        Verb substituted for "reconstructs" in operation-convention
+        sentences.
+    output_convention : {'operation', 'influence'}, default 'influence'
+        Sentence form used for each side's calc output.
+    pres_convention : {'operation', 'influence'}, default 'influence'
+        Sentence form used for each side's presentation output.
+    convention_mapping : dict, optional
+        Optional word remapping applied when rendering (e.g. to substitute a
+        domain-specific verb), passed through to both sides. Default is
+        ``{}``.
+
+    Notes
+    -----
+    ``r1``/``r2`` and their ``surr_*``/``*_calc`` counterparts are all
+    properties that delegate to an internal ``RelationshipSide`` instance
+    (``self._r1_side``/``self._r2_side``) — see that class for the rendering
+    details.
+
+    See Also
+    --------
+    RelationshipSide : Implements the rendering for one side (r1 or r2).
+    ResultsGrid : Consumes a ``Relationship`` to label its half-moon overlay
+        markers.
+    """
 
     def __init__(
         self,

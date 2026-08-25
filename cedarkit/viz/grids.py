@@ -32,6 +32,40 @@ except ImportError:
 
 
 class GridCell:
+    """One (row, col) position in a ``GridPlot``, holding its output(s) and labels.
+
+    ``GridCell`` is bookkeeping, not a plot itself: a multi-panel figure builder
+    (e.g. ``ResultsGrid``) creates one ``GridCell`` per grid position to carry
+    the ``Output``/``OutputCollection`` object(s) that cell renders, along with
+    the row/column/title labels accumulated for that position.
+
+    Parameters
+    ----------
+    row : int
+        Row index of this cell in the parent grid.
+    col : int
+        Column index of this cell in the parent grid.
+    output : object, optional
+        A single output object for this cell. Mutually exclusive with
+        ``outputs`` — pass one or the other, not both. Stored internally as a
+        one-element list and accessible via the ``output``/``outputs``
+        properties.
+    outputs : list, optional
+        An ordered collection of output objects for this cell, for panels that
+        overlay more than one relationship or comparison. Mutually exclusive
+        with ``output``.
+
+    Notes
+    -----
+    ``output`` is a legacy singular accessor: it returns ``None`` for an empty
+    cell, the single element for a one-output cell, and raises ``ValueError``
+    for a multi-output cell. New code should prefer ``outputs``.
+
+    See Also
+    --------
+    GridPlot : The grid builder that ``GridCell`` instances populate.
+    """
+
     def __init__(self, row, col, output=None, outputs=None):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
@@ -83,6 +117,72 @@ class GridCell:
         self._outputs = [] if value is None else [value]
 
 class GridPlot:
+    """Builder for multi-panel matplotlib figures laid out on subfigures.
+
+    ``GridPlot`` manages a grid of matplotlib subfigures/axes, one per
+    (row, col) position, and tracks both which positions are occupied and
+    what kind of content each holds (``'plot'``, ``'heatmap'``, ``'cbar'``,
+    ``'legend'``, ``'annotation'``, ``'title'``, or ``'spacer'``). That type
+    tagging drives a cosmetic finishing pass (``tidy_rows``) that unifies
+    y-limits/ticks across a row, hides redundant spines/tick labels between
+    neighboring panels, and applies consistent titles and axis labels — the
+    pattern used throughout CedarKit's CCM result grids.
+
+    Columns can also be grouped: passing a list of lists as ``width_ratios``
+    creates side-by-side subfigure groups (each with its own internal
+    spacing) rather than a single flat row of axes — used when a row mixes,
+    e.g., a wide heatmap panel with a narrow legend/colorbar panel.
+
+    Parameters
+    ----------
+    nrows : int
+        Number of rows in the grid.
+    ncols : int
+        Number of columns in the grid. Ignored per-row where ``width_ratios``
+        specifies grouped columns (see above).
+    width_ratios : list, optional
+        Relative column widths. A flat list (e.g. ``[2, 1]``) sets ratios for
+        a single row of subfigures; a list of lists groups columns into
+        separate subfigure groups per group. Default is ``None`` (equal
+        widths).
+    height_ratios : list, optional
+        Relative row heights, passed through to
+        ``matplotlib.figure.Figure.subfigures``. Default is ``None`` (equal
+        heights).
+    grid_type : str, default 'plot'
+        Default content type for the grid, either ``'plot'`` or ``'heatmap'``
+        — affects axis-label placement logic in ``tidy_rows``.
+
+    Notes
+    -----
+    Typical usage: construct, call ``make_grid`` to build the subfigures and
+    axes, then for each cell call ``get_ax(row, col)``, draw into it, and
+    register it with ``set_ax(row, col, ax, entry_type=...)``. After all
+    panels are drawn, call ``remove_empty()`` to clear unused axes and
+    ``tidy_rows()`` to apply unified limits and cosmetic cleanup. Legend
+    handles collected via ``add_handles_labels`` are placed with
+    ``add_legend``.
+
+    See Also
+    --------
+    GridCell : Per-position bookkeeping used alongside a ``GridPlot``.
+    SummaryGrid : Heatmap-specialized subclass with colorbar/legend support.
+
+    Examples
+    --------
+    ```python
+    gridplot = GridPlot(nrows=2, ncols=3)
+    gridplot.make_grid(figsize=(15, 8))
+    for row in range(2):
+        for col in range(3):
+            ax = gridplot.get_ax(row, col)
+            ax.plot([0, 1], [0, 1])
+            gridplot.set_ax(row, col, ax, entry_type='plot')
+    gridplot.remove_empty()
+    gridplot.tidy_rows()
+    ```
+    """
+
     def __init__(self, nrows, ncols, width_ratios=None, height_ratios=None, grid_type='plot'):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
@@ -282,7 +382,8 @@ class GridPlot:
             ticker = mpl.ticker.MaxNLocator(nbins=n_ticks)
 
 
-        if (decimals is not None) & ((hi > 0) and (lo < 0)):
+        if (decimals is not None) & ((hi > 0) and (lo < 0)) & (n_ticks is not None):
+            print('decimals', decimals)
             try:
                 amp = hi-lo
                 tick_delta = amp/(n_ticks-1)
@@ -806,6 +907,46 @@ class GridPlot:
 
 
 class SummaryGrid(GridPlot):
+    """``GridPlot`` subclass for heatmap-style CCM summary grids.
+
+    Adds colorbar construction and the custom legends used by CedarKit's
+    multi-dyad result grids (e.g. the paper's Δρ/significance overview
+    figures): a continuous colorbar via ``make_colorbar``, or — when
+    ``discrete_lag_mode`` is set — a discrete colorbar indexed by lag value.
+    ``create_custom_legend`` builds the marker/size legend explaining
+    surrogate-failure rate and marker shape (real vs. surrogate outcome);
+    ``create_lag_legend`` builds the companion legend for lag-grid overlays
+    (corner markers, ties, peak-sharpness circles).
+
+    Parameters
+    ----------
+    nrows : int
+        Number of rows in the grid.
+    ncols : int
+        Number of columns in the grid.
+    width_ratios : list, optional
+        Relative column widths — see ``GridPlot``. Default is ``None``.
+    height_ratios : list, optional
+        Relative row heights — see ``GridPlot``. Default is ``None``.
+    grid_type : str, default 'heatmap'
+        Content type passed to ``GridPlot.__init__``; defaults to
+        ``'heatmap'`` here (vs. ``'plot'`` for the base class) since
+        ``SummaryGrid`` is built around heatmap panels.
+
+    Notes
+    -----
+    Colorbar color/normalization is read from ``self.palette`` and either
+    ``self.norm`` or ``self.vlims`` (a ``(vmin, vmax)`` pair). Legend markers
+    are configured via ``self.marker_d`` (label -> ``MarkerStyle``) and
+    ``self.sizes`` (min/max marker size in points²).
+
+    See Also
+    --------
+    GridPlot : Base multi-panel figure builder.
+    ResultsGrid : Per-panel heatmap renderer typically placed into a
+        ``SummaryGrid``.
+    """
+
     def __init__(self, nrows, ncols, width_ratios=None, height_ratios=None, grid_type='heatmap'):
         super().__init__(nrows, ncols, width_ratios=width_ratios, height_ratios=height_ratios, grid_type=grid_type)
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")

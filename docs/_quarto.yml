@@ -112,12 +112,64 @@ quartodoc:
   css: "api/_styles-quartodoc.css"
 
   sections:
-    - title: API Reference
+    - title: Core - Configuration & Data Model
       desc: |
-        Add your own modules, classes, and functions here, e.g. "cedarkit.MyClass".
-        The two entries below are scaffold-generated examples — see
-        cedarkit/_protodocs_example.py and _protodocs_docstring_template.py.
-        Delete them from this list (and the files themselves) once you have real content.
+        Project configuration, per-variable timeseries loading, CCM run
+        configuration, and the output/relationship objects a run produces.
       contents:
-        - _protodocs_example.protodocs_example_plot
-        - _protodocs_docstring_template.protodocs_docstring_template
+        - core.project_config.load_config
+        - core.data_var.VarObject
+        - core.relationship.Relationship
+        - core.data_objects.RunConfig
+        - core.data_objects.CCMConfig
+        - core.data_objects.DataGroup
+        - core.data_objects.OutputCollection
+        - core.data_objects.merge_variable_ts
+
+    - title: Visualization - Grids & Panels
+      desc: |
+        Multi-panel figure layout (``GridPlot``/``SummaryGrid``) and the
+        individual panel types (``viz.panels``) placed into them.
+      contents:
+        - viz.grids.GridPlot
+        - viz.grids.GridCell
+        - viz.grids.SummaryGrid
+        - viz.panels.BasePlot
+        - viz.panels.LibSizeRhoPlot
+        - viz.panels.LagPlot
+        - viz.panels.ResultsGrid
+        - viz.panels.SimplexGrid
+
+    - title: Running CCM Experiments
+      desc: Executing a single CCM run and persisting its output.
+      contents:
+        - utils.experiments.ccm.run_experiment
+        - utils.experiments.ccm.write_to_file
+
+    - title: Workflow - Parameters & Slurm
+      desc: Building, deduplicating, and dispatching CCM parameter sweeps.
+      contents:
+        - utils.workflow.parameter_utils.make_comb_df
+        - utils.workflow.parameter_utils.process_params_group
+        - utils.workflow.parameter_utils.tidy_up_params
+        - utils.workflow.slurm_tools.gen_parameters_slurm2
+
+    - title: Routing & I/O
+      desc: Resolving project paths, filenames, and cloudpickle-backed joblib I/O.
+      contents:
+        - utils.routing.paths.check_location
+        - utils.routing.paths.set_calc_path
+        - utils.routing.paths.set_output_path
+        - utils.routing.file_name_parsers.check_csv
+        - utils.io.cloudjoblib.joblib_cloud_load
+        - utils.io.cloudjoblib.joblib_cloud_atomic_dump
+        - utils.io.timeseries_utils.remove_extra_index
+
+    - title: CLI Utilities
+      desc: Common argument parsing, logging setup, and file-handling decisions for scripts.
+      contents:
+        - utils.cli.arg_parser.get_parser
+        - utils.cli.arg_parser.parse_flags
+        - utils.cli.logging.setup_logging
+        - utils.cli.logging.log_line
+        - utils.io.gonogo.decide_file_handling

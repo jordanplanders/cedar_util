@@ -14,19 +14,35 @@ from cedarkit.utils.cli import setup_logging, log_line
 
 
 def run_experiment(arg_tuple):
-    '''
-    Run EDM CCM experiment based on CCMConfig object
-    Parameters:
-        arg_tuple: (ccm_obj, cpu_count, self_predict, time_offset)
-            ccm_obj: CCMConfig object
-            cpu_count: number of CPUs to use
-            self_predict: boolean, whether to use self prediction
-            time_offset: integer, offset to add to run_id
-    Returns:
-        (ccm_out_df, df_path)
+    """Run one CCM experiment via pyEDM and return its unpacked output.
 
+    Calls ``pyEDM.CCM`` using the parameters carried on ``ccm_obj``, unpacks
+    and concatenates its per-target ``CrossMapList`` results, and attaches
+    run metadata (``weighting_scheme``, ``lag``, ``run_id``, ``pset_id``)
+    before returning.
 
-    '''
+    Parameters
+    ----------
+    arg_tuple : tuple of (CCMConfig, str, int)
+        ``(ccm_obj, script, start_ind)`` — ``ccm_obj`` is the fully-resolved
+        ``cedarkit.core.data_objects.CCMConfig`` for this run (supplies
+        ``E``, ``tau``, ``lag``, ``knn``, ``Tp``, library sizes, and the
+        merged dataframe); ``script`` is the calling script's name, used only
+        for logging; ``start_ind`` offsets the millisecond-timestamp
+        ``run_id`` so runs launched in the same process don't collide.
+
+    Returns
+    -------
+    tuple of (pandas.DataFrame, pathlib.Path)
+        ``(ccm_out_df, df_path)`` — the unpacked CCM output (one row per
+        library size / prediction), and ``ccm_obj.file_path``, the
+        destination this output should be written to (see
+        ``write_to_file``).
+
+    See Also
+    --------
+    write_to_file : Persists the ``ccm_out_df`` this function returns.
+    """
 
     ccm_obj, script, start_ind  = arg_tuple
 
@@ -97,6 +113,36 @@ def run_experiment(arg_tuple):
 
 
 def write_to_file(ccm_out_df, df_path, overwrite=False):
+    """Append (or overwrite) one CCM run's output onto its run-level CSV.
+
+    Drops a fixed set of bookkeeping columns not meant for the persisted
+    output (``Tp_lag_total``, ``sample``, ``weighted``, ``train_ind_0``,
+    ``run_id``, ``ind_f``, ``Tp_flag``, ``train_len``, ``train_ind_i``), then
+    either replaces ``df_path`` entirely or concatenates onto its existing
+    contents.
+
+    Parameters
+    ----------
+    ccm_out_df : pandas.DataFrame
+        A single run's CCM output, as returned by ``run_experiment``.
+    df_path : pathlib.Path
+        Destination CSV. Its parent directory is created if missing.
+    overwrite : bool, default False
+        If ``False`` and ``df_path`` already exists, ``ccm_out_df`` is
+        concatenated onto the existing (bookkeeping-column-stripped)
+        contents before writing. If ``True``, any existing file is replaced
+        outright with ``ccm_out_df``.
+
+    Notes
+    -----
+    Prints a confirmation (or failure) message to stdout/stderr rather than
+    returning a status; failures reading an existing ``df_path`` are
+    swallowed and treated as "no existing file".
+
+    See Also
+    --------
+    run_experiment : Produces the ``ccm_out_df`` this function persists.
+    """
     remove_cols = ['Tp_lag_total', 'sample', 'weighted', 'train_ind_0', 'run_id', 'ind_f', 'Tp_flag', 'train_len',
                    'train_ind_i']
     ccm_out_df = ccm_out_df[[col for col in ccm_out_df.columns if col not in remove_cols]].copy()

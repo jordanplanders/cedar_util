@@ -7,6 +7,27 @@ from cedarkit.utils.cli import setup_logging, log_line
 
 # String methods for file names and parameter values
 def check_csv(output_file_name):
+    """Ensure a filename has a ``.csv`` extension, appending one if missing.
+
+    Parameters
+    ----------
+    output_file_name : str
+        Filename or stem to check.
+
+    Returns
+    -------
+    str
+        ``output_file_name`` unchanged if it already contains ``'.csv'``
+        anywhere in the string, otherwise ``output_file_name`` with
+        ``'.csv'`` appended.
+
+    Examples
+    --------
+    ```python
+    check_csv('params_lag')       # -> 'params_lag.csv'
+    check_csv('params_lag.csv')   # -> 'params_lag.csv'
+    ```
+    """
     if '.csv' not in output_file_name:
         output_file_name = f'{output_file_name}.csv'
     return output_file_name

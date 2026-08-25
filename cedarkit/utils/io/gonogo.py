@@ -4,13 +4,31 @@ logger = logging.getLogger(__name__)
 from cedarkit.utils.cli import setup_logging, log_line
 
 def decide_file_handling(args, file_exists: bool, modify_datetime=None) -> tuple[bool, bool]:
-    """
-    Decide (run_continue, overwrite) based on:
-      - args.override       (bool)
-      - args.write          ("append" or "replace")
-      - args.datetime_flag  (optional datetime cutoff)
-      - file_exists         (bool)
-      - modify_datetime     (file’s mtime as datetime or None)
+    """Decide whether to run and whether to overwrite, for a possibly-existing output file.
+
+    Precedence: if the file exists and ``args.override`` is falsy, either
+    skip (when there's no ``args.datetime_flag`` cutoff, or the file is
+    newer than that cutoff) or fall through to later rules (if the datetime
+    comparison fails). If the file exists and ``args.write == 'append'``,
+    run without overwriting. Otherwise, run and overwrite.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI arguments (see ``get_parser``); reads ``args.override``
+        (bool), ``args.write`` (``'append'`` or other), and
+        ``args.datetime_flag`` (an optional datetime cutoff).
+    file_exists : bool
+        Whether the target output file already exists.
+    modify_datetime : datetime.datetime, optional
+        The existing file's modification time, compared against
+        ``args.datetime_flag`` when both are given.
+
+    Returns
+    -------
+    tuple of (bool, bool)
+        ``(run_continue, overwrite)`` — whether to proceed with the run, and
+        if so, whether to overwrite the existing file rather than append.
     """
     # default to running and overwriting
     run_continue = True

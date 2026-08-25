@@ -28,50 +28,41 @@ except ImportError:
 
 
 class BasePlot:
-    """Class to create lag plots with optional scatter and highlighted points.
+    """Shared plotting scaffolding for CedarKit's Output-based panel classes.
+
+    ``BasePlot`` is not used directly — ``LibSizeRhoPlot``, ``LagPlot``,
+    ``ResultsGrid``, and ``SimplexGrid`` all subclass it. It centralizes the
+    parts of a CCM panel that don't vary by plot type: pulling a tidy pandas
+    frame from an ``OutputCollection``'s polars-backed tables (``pull_df``),
+    drawing scatter/line layers (``_scatter``/``_line``), collecting legend
+    handles without duplicates (``handle_legend``), tracking the plotted
+    y-range (``update_y_extrema``), text annotations (``add_annotations``),
+    and a final axis cosmetic pass (``tidy_plot``).
+
     Parameters
     ----------
-    y_var : str, default 'delta_rho'
-        The y-axis variable to plot.
-    ax : matplotlib.axes.Axes, optional
-        The axes to plot on. If None, a new figure and axes are created.
-    palette : dict or seaborn-compatible palette, optional
-        Color palette for different relation categories.
+    grp_d : dict or None
+        Initial attribute values, applied via ``setattr`` for any key that
+        matches an existing attribute name on the instance (see
+        ``populate``). Subclasses build this from their own constructor
+        arguments (typically ``y_var``, ``x_var``, ``ax``, ``palette``)
+        rather than exposing ``grp_d`` directly. If the resolved instance has
+        no ``ax`` after populating, a new figure and axes are created.
 
-    Methods
-    -------
-    add_scatter(df, hue='relation', legend=True)
-        Adds scatter points to the plot.
-    highlight_points(df, hue='relation', edgecolor="black", legend=False)
-        Highlights specific points on the plot.
-    add_line(df, hue='relation', units='surr_num', legend=False)
-        Adds line plots to the plot.
-    make_lag_plot(output, scatter=False, surr_lines=False, stats_only=True)
-        Creates the lag plot with options for scatter and surrogate lines.
-    Attributes
-    ----------
-    top_val_color : str
-        Color for highlighting top values.
-    bottom_val_color : str
-        Color for highlighting bottom values.
-    highlight_points_size : int
-        Size of highlighted points.
-    highlight_points_linewidth : float
-        Line width of highlighted points.
-    highlight_points_alpha : float
-        Alpha transparency of highlighted points.
-    scatter_points_size : int
-        Size of scatter points.
-    scatter_points_alpha : float
-        Alpha transparency of scatter points.
+    Notes
+    -----
+    ``pull_df`` accepts either a single output collection or a list of them
+    (concatenating results and, if ``comparison_labels`` is given, tagging
+    each source with a ``comparison_label`` column) — used when overlaying
+    results from more than one dyad or treatment on the same panel.
 
-    Examples
+    See Also
     --------
-    >>> lag_plot = LagPlot(y_var='delta_rho', palette=my_palette)
-    >>> lag_plot.make_lag_plot(output=my_output, scatter=True, surr_lines=True, stats_only=False)
-
+    LibSizeRhoPlot : Library-size vs. ρ trajectory panel.
+    LagPlot : Δρ (or similar) vs. lag panel.
+    ResultsGrid : (E, τ) heatmap panel.
+    SimplexGrid : Simplex self-prediction heatmap panel.
     """
-
 
     def __init__(self, grp_d):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
@@ -377,6 +368,47 @@ class BasePlot:
 
 
 class LibSizeRhoPlot(BasePlot):
+    """CCM skill (ρ) vs. library size, for one fixed lag.
+
+    Plots the real relationship's library-size convergence trajectory
+    (``add_line``/``make_classic_plot``) alongside its surrogate counterpart
+    when present, for a single ``lag`` value — the panel type used to build
+    the library-size convergence figures (e.g. the paper's Fig. S3).
+
+    Parameters
+    ----------
+    y_var : str, default 'rho'
+        Column plotted on the y-axis (CCM skill).
+    x_var : str, default 'LibSize'
+        Column plotted on the x-axis (library size).
+    units : str, optional
+        Grouping column passed to the underlying line plot's ``units``
+        (e.g. ``'surr_num'``), so repeated surrogate draws are drawn as
+        separate unaggregated lines rather than summarized. Default is
+        ``None``.
+    lag : int, default 0
+        The time-series alignment this panel plots; ``make_classic_plot``
+        filters the real relationship's data to this lag.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw on. If ``None``, a new figure and axes are created.
+    palette : dict or seaborn-compatible palette, optional
+        Color palette keyed by relation label.
+    plot_config : BasePlot, optional
+        An existing panel instance to copy data attributes from, instead of
+        building fresh from ``y_var``/``x_var``/``ax``/``palette``.
+    plot_grp : dict, optional
+        Explicit attribute overrides, used instead of the
+        ``y_var``/``x_var``/``ax``/``palette`` bundle when ``plot_config`` is
+        not given. See ``BasePlot``.
+
+    See Also
+    --------
+    BasePlot : Shared panel scaffolding.
+    LagPlot : Companion panel plotting skill/Δρ vs. lag instead of library size.
+    GridPlot : Multi-panel layout typically used to arrange several
+        ``LibSizeRhoPlot`` panels (one per lag) into a grid.
+    """
+
     def __init__(self, y_var='rho', x_var='LibSize', units=None, lag=0, ax=None, palette=None, plot_config=None, plot_grp=None):
         # 1) Always run base init with a minimal group dict
         if isinstance(plot_config, BasePlot):
@@ -513,49 +545,61 @@ class LibSizeRhoPlot(BasePlot):
 
 
 class LagPlot(BasePlot):
-    """Class to create lag plots with optional scatter and highlighted points.
+    """Δρ (or similar) vs. lag panel, with scatter, line, and boxplot layers.
+
+    Built around ``make_classic_lag_plot``, which draws the real
+    relationship's line (``add_line``), the surrogate distribution as either
+    a scatter (``add_scatter``) or a per-lag boxplot (``add_boxplot``), and
+    can accept either a single output collection or a list of them (for
+    side-by-side comparisons, labeled via ``comparison_labels``).
+    ``highlight_points``/``add_top_vals``/``add_bottom_vals`` overlay
+    outlined markers on top/bottom-ranked points.
+
     Parameters
     ----------
     y_var : str, default 'delta_rho'
-        The y-axis variable to plot.
+        Column plotted on the y-axis.
+    x_var : str, default 'lag'
+        Column plotted on the x-axis.
     ax : matplotlib.axes.Axes, optional
-        The axes to plot on. If None, a new figure and axes are created.
+        Axes to draw on. If ``None``, a new figure and axes are created.
     palette : dict or seaborn-compatible palette, optional
-        Color palette for different relation categories.
-
-    Methods
-    -------
-    add_scatter(df, hue='relation', legend=True)
-        Adds scatter points to the plot.
-    highlight_points(df, hue='relation', edgecolor="black", legend=False)
-        Highlights specific points on the plot.
-    add_line(df, hue='relation', units='surr_num', legend=False)
-        Adds line plots to the plot.
-    make_lag_plot(output, scatter=False, surr_lines=False, stats_only=True)
-        Creates the lag plot with options for scatter and surrogate lines.
+        Color palette keyed by relation label.
+    plot_config : BasePlot, optional
+        An existing panel instance to copy data attributes from, instead of
+        building fresh from the other arguments.
+    plot_grp : dict, optional
+        Explicit attribute overrides. See ``BasePlot``.
 
     Attributes
     ----------
-    top_val_color : str
-        Color for highlighting top values.
-    bottom_val_color : str
-        Color for highlighting bottom values.
-    highlight_points_size : int
-        Size of highlighted points.
-    highlight_points_linewidth : float
-        Line width of highlighted points.
-    highlight_points_alpha : float
-        Alpha transparency of highlighted points.
-    scatter_points_size : int
-        Size of scatter points.
-    scatter_points_alpha : float
-        Alpha transparency of scatter points.
+    top_val_color : str, default 'black'
+        Edge color used by ``add_top_vals``.
+    bottom_val_color : str, default 'gray'
+        Edge color used by ``add_bottom_vals``.
+    highlight_points_size : int, default 40
+        Marker size for ``highlight_points``.
+    highlight_points_linewidth : float, default 1.5
+        Marker edge linewidth for ``highlight_points``.
+    highlight_points_alpha : float, default 1
+        Marker alpha for ``highlight_points``.
+    scatter_points_size : int, default 20
+        Marker size for ``add_scatter``.
+    scatter_points_alpha : float, default 0.5
+        Marker alpha for ``add_scatter``.
+
+    See Also
+    --------
+    BasePlot : Shared panel scaffolding.
+    LibSizeRhoPlot : Companion panel plotting skill vs. library size instead
+        of vs. lag.
 
     Examples
     --------
-    >>> lag_plot = LagPlot(y_var='delta_rho', palette=my_palette)
-    >>> lag_plot.make_lag_plot(output=my_output, scatter=True, surr_lines=True, stats_only=False)
-
+    ```python
+    lag_plot = LagPlot(y_var='delta_rho', palette=my_palette)
+    lag_plot.make_classic_lag_plot(my_outputgrp, scatter=True, stats_only=False)
+    ```
     """
 
     def __init__(self, y_var='delta_rho', x_var='lag', ax=None, palette=None, plot_config=None, plot_grp=None):
@@ -951,6 +995,76 @@ class LagPlot(BasePlot):
 
 
 class ResultsGrid(BasePlot):
+    """One (E, τ) heatmap panel summarizing CCM results for a dyad.
+
+    Pivots a dyad-level results frame on ``x_var``/``y_var`` (typically E and
+    τ) and colors it by ``hue_var`` (typically Δρ) via ``plot_heatmap`` — the
+    per-panel building block behind CedarKit's multi-dyad result grids (e.g.
+    the paper's Fig. 3 and Fig. S6). ``add_half_moons`` overlays scatter
+    markers, one per relationship side, sized by the fraction of surrogates
+    that outperformed the real relationship — the significance annotation on
+    each heatmap cell.
+
+    Parameters
+    ----------
+    relationship : cedarkit.core.relationship.Relationship
+        Identifies the two variables being compared; supplies the
+        left/right marker labels used in the half-moon significance
+        overlay.
+    sizes : tuple of (float, float), default (0, 400)
+        Min/max marker size (points²) for the half-moon overlay.
+    hue_var : str, default 'delta_rho'
+        Column mapped to heatmap color.
+    y_var : str, default 'tau'
+        Row-axis variable.
+    x_var : str, default 'E'
+        Column-axis variable.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw on. If ``None``, a new figure and axes are created.
+    palette : colormap or seaborn-compatible palette, optional
+        Heatmap colormap.
+    plot_config : BasePlot, optional
+        An existing panel instance to copy data attributes from, instead of
+        building fresh from the other arguments.
+    plot_grp : dict, optional
+        Explicit attribute overrides. See ``BasePlot``.
+    norm : matplotlib.colors.Normalize, optional
+        Explicit color normalization; overrides ``vmin``/``vmax`` when given.
+    lag_mode : str, default 'unrestricted'
+        How the optimal-lag search that produced this data was constrained;
+        read by the lag-overlay helpers.
+    x_cutoff : float, default 0
+        Threshold used by the corner/tie overlay logic.
+    show_corner : bool, default False
+        Draw a corner marker where the optimal lag sits at the edge of the
+        searched range.
+    show_half_moons : bool, default True
+        Draw the surrogate-outperforming-fraction overlay markers.
+    outline_color : str, optional
+        Heatmap cell outline color. No outline is drawn if ``None``.
+    show_peak_circles : bool, default False
+        Draw circular markers sized by peak sharpness around the optimal lag.
+    peak_window_halfwidth : int, default 3
+        Half-width, in lag steps, of the window used to assess peak
+        sharpness.
+    lag_filter : callable, optional
+        Predicate applied to a ``'peak_end'`` column to mask out cells whose
+        optimal-lag search hit the edge of the tested range.
+
+    Notes
+    -----
+    Heatmap data is prepared by ``prep_dyad_df`` (Δρ-style grids) or
+    ``prep_optimal_lag_df`` (discrete-lag grids); ``populate_from_cellobj``
+    pulls axis labels, title, and value limits from an associated
+    ``GridCell``.
+
+    See Also
+    --------
+    BasePlot : Shared panel scaffolding.
+    SummaryGrid : Multi-panel grid that typically hosts several
+        ``ResultsGrid`` panels, plus their shared colorbar and legend.
+    GridCell : Per-position bookkeeping consumed by ``populate_from_cellobj``.
+    """
 
     def __init__(self, relationship, sizes = (0, 400), hue_var='delta_rho',
                  y_var='tau', x_var='E', ax=None, palette=None, plot_config=None, plot_grp=None,norm=None,
@@ -1261,6 +1375,47 @@ class ResultsGrid(BasePlot):
 
 
 class SimplexGrid(BasePlot):
+    """One (E, τ) heatmap panel of simplex self-prediction skill.
+
+    Pivots a self-prediction results frame on ``x_var``/``y_var`` (typically
+    E and τ) and colors it by ``hue_var`` (self-prediction ρ) via
+    ``plot_heatmap`` — the panel type used to show that self-prediction skill
+    doesn't peak at one clearly optimal embedding configuration (the pattern
+    behind the paper's Fig. S2), which motivates sweeping (E, τ) with CCM
+    rather than fixing a single configuration.
+
+    Parameters
+    ----------
+    hue_var : str, default 'rho'
+        Column mapped to heatmap color (self-prediction skill).
+    y_var : str, default 'tau'
+        Row-axis variable.
+    x_var : str, default 'E'
+        Column-axis variable.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw on. If ``None``, a new figure and axes are created.
+    palette : colormap or seaborn-compatible palette, optional
+        Heatmap colormap.
+    plot_config : BasePlot, optional
+        An existing panel instance to copy data attributes from, instead of
+        building fresh from the other arguments.
+    plot_grp : dict, optional
+        Explicit attribute overrides. See ``BasePlot``.
+    norm : matplotlib.colors.Normalize, optional
+        Explicit color normalization; overrides ``vmin``/``vmax`` when given.
+
+    Notes
+    -----
+    ``make_colorbar`` draws a colorbar from, in order of preference: the
+    norm captured from the last-plotted heatmap, an explicit ``norm``, or
+    ``vmin``/``vmax``.
+
+    See Also
+    --------
+    BasePlot : Shared panel scaffolding.
+    ResultsGrid : Analogous heatmap panel for CCM (rather than
+        self-prediction) results.
+    """
 
     def __init__(self, hue_var='rho',
                  y_var='tau', x_var='E', ax=None, palette=None, plot_config=None, plot_grp=None, norm=None):

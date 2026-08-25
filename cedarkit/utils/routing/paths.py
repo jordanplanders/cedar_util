@@ -8,6 +8,34 @@ logger = logging.getLogger(__name__)
 from cedarkit.utils.cli import log_line
 
 def check_location(target_path=None, hpc_word='lplander'):
+    """Classify a path as local or HPC based on a marker substring.
+
+    Parameters
+    ----------
+    target_path : str or pathlib.Path, optional
+        Path to inspect. Default is the current working directory
+        (``pathlib.Path.cwd()``).
+    hpc_word : str, default 'lplander'
+        Substring whose presence in ``target_path`` marks it as an HPC path
+        (e.g. a username or cluster mount point that only appears in HPC
+        filesystem layouts).
+
+    Returns
+    -------
+    str
+        ``'hpc'`` if ``hpc_word`` appears in ``target_path``, otherwise
+        ``'local'``.
+
+    Notes
+    -----
+    The result selects which location-specific block of the project config
+    (e.g. ``config.local`` vs. ``config.hpc``) other routing helpers such as
+    ``set_calc_path`` read from.
+
+    See Also
+    --------
+    set_calc_path : Uses this to select the calc-directory config block.
+    """
     if target_path is None:
         target_path = Path.cwd()
 
@@ -18,6 +46,37 @@ def check_location(target_path=None, hpc_word='lplander'):
 
 
 def set_calc_path(args, proj_dir, config, second_suffix=''):
+    """Resolve the calculation-output directory for a run.
+
+    Uses an explicit CLI override if given, otherwise reads the
+    location-specific (``local``/``hpc``) ``calc_dir`` setting from
+    ``config``, selected via ``check_location``.
+
+    Parameters
+    ----------
+    args : argparse.Namespace or None
+        Parsed CLI arguments (see ``get_parser``). If ``args.calc_dir`` is
+        set, it is used directly (as ``proj_dir / args.calc_dir``) and
+        ``config``/``second_suffix`` are ignored.
+    proj_dir : pathlib.Path
+        Project root directory.
+    config : cedarkit.core.project_config.ProjectConfig
+        Project configuration, consulted for the location-specific
+        ``calc_dir`` value when ``args`` doesn't override it.
+    second_suffix : str, default ''
+        Appended to the config-derived directory name — useful for keeping
+        parallel run variants (e.g. a test run) in separate directories.
+
+    Returns
+    -------
+    pathlib.Path
+        The resolved calculation directory (not guaranteed to exist yet).
+
+    See Also
+    --------
+    check_location : Determines which config block ``calc_dir`` is read from.
+    set_output_path : Resolves the output directory nested under this path.
+    """
     calc_location = None
     if args is not None:
         if args.calc_dir is not None:
@@ -118,6 +177,31 @@ def resolve_consolidated_dir(
 
 
 def set_output_path(args, calc_location, config):
+    """Resolve the output directory nested under a calculation location.
+
+    Parameters
+    ----------
+    args : argparse.Namespace or None
+        Parsed CLI arguments. If ``args.output_dir`` is set, it is used
+        directly (as ``calc_location / args.output_dir``) and ``config`` is
+        ignored.
+    calc_location : pathlib.Path
+        Base calculation directory, typically from ``set_calc_path``.
+    config : cedarkit.core.project_config.ProjectConfig
+        Project configuration; ``config.hpc.output_dir`` is used when
+        ``args`` doesn't override it.
+
+    Returns
+    -------
+    pathlib.Path or None
+        The resolved output directory, or ``None`` if neither ``args`` nor
+        ``config.hpc.output_dir`` provides one (a message is printed to
+        stdout in that case rather than raising).
+
+    See Also
+    --------
+    set_calc_path : Resolves the ``calc_location`` this builds on.
+    """
     output_dir = None
     if args is not None:
         if args.output_dir is not None:
