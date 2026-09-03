@@ -1,5 +1,10 @@
+import inspect
 import math
+import os
 import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 import matplotlib as mpl
 import numpy as np
@@ -11,6 +16,68 @@ logger = logging.getLogger(__name__)
 
 from cedarkit.utils.cli import setup_logging, log_line
 from cedarkit.utils.workflow.process_output import relation_candidates
+
+
+def _default_figure_stem() -> str:
+    """Return the name of the function that called ``save_figure``."""
+    frame = inspect.currentframe()
+    try:
+        # _default_figure_stem -> save_figure -> the user's calling function
+        caller = frame.f_back.f_back if frame is not None else None
+        return caller.f_code.co_name if caller is not None else "figure"
+    finally:
+        del frame
+
+
+def save_figure(
+    fig: Any,
+    figures_dir: str | Path,
+    stem: str | None = None,
+    *,
+    manuscript_dir: str | Path | None = None,
+    dpi: int = 1000,
+    dry_run: bool = True,
+) -> dict[str, Path]:
+    """Save a figure locally and, optionally, to a manuscript figure directory.
+
+    ``manuscript_dir`` takes precedence over ``MANUSCRIPT_FIGURES_DIR``.  With
+    the default ``dry_run=True``, planned paths are printed but no directories
+    or files are created.  Set ``dry_run=False`` to write the figure.
+
+    Returns a dictionary of the planned (or written) paths.  When configured,
+    the manuscript output includes a timestamped copy beneath a directory named
+    for ``figures_dir`` and a stable ``<stem>.pdf`` copy at its root.
+    """
+    figures_path = Path(figures_dir).expanduser()
+    figure_stem = stem if isinstance(stem, str) else _default_figure_stem()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    paths = {"local": figures_path / f"{figure_stem}_{timestamp}.pdf"}
+
+    configured_manuscript_dir = manuscript_dir
+    if configured_manuscript_dir is None:
+        configured_manuscript_dir = os.environ.get("MANUSCRIPT_FIGURES_DIR") or None
+
+    if configured_manuscript_dir is not None:
+        manuscript_path = Path(configured_manuscript_dir).expanduser()
+        paths["manuscript_tagged"] = (
+            manuscript_path / figures_path.name / f"{figure_stem}_{timestamp}.pdf"
+        )
+        paths["manuscript_canonical"] = manuscript_path / f"{figure_stem}.pdf"
+
+    if dry_run:
+        for label, path in paths.items():
+            print(f"Would save {label}: {path}")
+        return paths
+
+    paths["local"].parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(paths["local"], bbox_inches="tight")
+
+    if "manuscript_tagged" in paths:
+        paths["manuscript_tagged"].parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(paths["manuscript_tagged"], bbox_inches="tight", dpi=dpi)
+        fig.savefig(paths["manuscript_canonical"], bbox_inches="tight", dpi=dpi)
+
+    return paths
 
 
 def font_resizer(context='paper', multiplier=1.0, rc=None):
