@@ -369,7 +369,7 @@ class GridPlot:
         if mode != 'centralize':
             raise ValueError(f"Unknown unify_ylims mode: {mode!r}")
 
-        print('values', values)
+        # print('values', values)
         lo, hi = min(values), max(values)
         lo_round, hi_round = lo, hi
 
@@ -383,7 +383,7 @@ class GridPlot:
 
 
         if (decimals is not None) & ((hi > 0) and (lo < 0)) & (n_ticks is not None):
-            print('decimals', decimals)
+            # print('decimals', decimals)
             try:
                 amp = hi-lo
                 tick_delta = amp/(n_ticks-1)
@@ -693,7 +693,7 @@ class GridPlot:
                             if len(yticks) >= 2:
                                 ax.spines['left'].set_bounds(ybounds[0], ybounds[-1])
                                 ax.set_yticks(yticks)#[:-1])
-                            print('not heatmap', yticks)
+                            # print('not heatmap', yticks)
 
 
                     # tune content labeling based on content below
@@ -727,14 +727,14 @@ class GridPlot:
                             # xticks = ax.get_xticks()
                             # xticks = int_yticks_within_ylim(valid_xlims[0], valid_xlims[1])
                             # xticks = xticks[(xticks >= min(valid_xlims)) & (xticks <= max(valid_xlims))]
-                            print('xlims',valid_xlims, 'xticks', xticks)
+                            # print('xlims',valid_xlims, 'xticks', xticks)
 
                         if self.ax_grid_types[key] =='plot':
                             try:
                                 if len(xticks) >= 2:
                                     ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
                                     ax.set_xticks(xticks)
-                                    print('not plot', xticks)
+                                    # print('not plot', xticks)
                             except:
                                 xticks = ax.get_xticks()
                                 tmp_xlims = ax.get_xlim()
