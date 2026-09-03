@@ -300,3 +300,28 @@ This README describes the current `cedarkit` CSV/parquet-oriented workflow and t
 ## License
 
 The current package metadata declares `GPL-3.0`.
+# Figure saving
+
+`save_figure` safely previews output locations by default.  Import it with:
+
+```python
+from cedarkit.utils.plotting import save_figure
+```
+
+Set `dry_run=False` to create directories and write the local PDF:
+
+```python
+save_figure(fig, figures_dir, stem="figure_1", dry_run=False)
+```
+
+To also create manuscript copies, either pass `manuscript_dir=` or configure
+`MANUSCRIPT_FIGURES_DIR`.  For a single notebook/session:
+
+```python
+import os
+
+os.environ["MANUSCRIPT_FIGURES_DIR"] = "/path/to/manuscript/figures"
+```
+
+With no configured manuscript directory, only the appointed `figures_dir` is
+used.  The default `dry_run=True` prints planned paths and makes no changes.
