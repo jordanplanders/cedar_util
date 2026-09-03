@@ -480,11 +480,13 @@ class LibSizeRhoPlot(BasePlot):
         )
         real_lag_df = real_lag_df[real_lag_df['lag'] == self.lag]
         if smoothed:
+            if isinstance(smoothed, bool):
+                smoothed=5
             group_cols = ["relation", "surr_var", "surr_num"]
             real_lag_df = real_lag_df.sort_values(group_cols + ["LibSize"]).copy()
             real_lag_df[self.y_var] = (
                 real_lag_df.groupby(group_cols, dropna=False)[self.y_var]
-                .transform(lambda values: values.rolling(window=2, center=True, min_periods=1).mean())
+                .transform(lambda values: values.rolling(window=smoothed, center=True, min_periods=1).mean())
             )
             # real_lag_df[self.y_var] = (
             #     real_lag_df.groupby('relation')[self.y_var]
@@ -1156,9 +1158,8 @@ class ResultsGrid(BasePlot):
             dyad_df[self.hue_var] = dyad_df.apply(lambda row: 0 if (row['surr_ry_outperforming_frac'] is None) or (row['surr_rx_outperforming_frac'] is None) else row[self.hue_var], axis=1)
         # dyad_df = dyad_df.drop_duplicates(['tau', 'E', hue_var_fill, 'TSI_p_less__maxlibsize_rho', 'temp_p_less__maxlibsize_rho'])
 
-        if dyad_df[self.hue_var].isna().any():
-            print(dyad_df[dyad_df[self.hue_var].isna()], 'dyad_df hue_var with nans')
-        # dyad_df[self.hue_var].fillna(-1, inplace=True)
+        # if dyad_df[self.hue_var].isna().any():
+        #     print(dyad_df[dyad_df[self.hue_var].isna()], 'dyad_df hue_var with nans')
 
         if dyad_df[self.hue_var].sum() == 0:
             dyad_df[self.hue_var] = np.nan#None
