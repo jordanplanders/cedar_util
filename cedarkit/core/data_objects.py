@@ -2186,7 +2186,6 @@ class OutputCollection:
                 target = candidates_list.pop(0)
             top_candidates = [target]
             for i, candidate in enumerate(candidates_list):
-                # TODO: slightly arbitrary choice to use the IQR
                 if target[comp_var_target] <= candidates_list[i][comp_var_alt]:
                     top_candidates.append(candidate)
                 # is this adding?
@@ -2292,8 +2291,8 @@ class OutputCollection:
         self.delta_rho_full.clear_table()
         real_r_df = gb_real_df[
             (gb_real_df['relation'] == relationship) & (gb_real_df['surr_var'] == surr_var)].reset_index(drop=True)
-        print(f'self.calc_lags_peaks: filtered real performance data frame for relationship {relationship} and surrogate variable {surr_var}:')
-        print(real_r_df.head())
+        # print(f'self.calc_lags_peaks: filtered real performance data frame for relationship {relationship} and surrogate variable {surr_var}:')
+        # print(real_r_df.head())
         all_candidates = self.find_candidate_peaks(real_r_df, y_col=y_col, smoothing_window=smoothing_window)
 
         self.lag_choices = all_candidates
