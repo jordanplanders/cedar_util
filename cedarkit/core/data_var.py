@@ -449,7 +449,7 @@ class VarObject(DataVarConfig):
         source_ps = pyleo.Series(time=time_axis, value=self.ts[self.col_name].values,
                                  time_unit=self.time_unit if self.time_unit is not None else 'yr BP', value_unit=self.unit, value_name=self.var,
                                  # label='wu_tsi')
-                                 label=self.var_name)
+                                 label=self.var_name, verbose=False)
         return source_ps
 
     # @property
